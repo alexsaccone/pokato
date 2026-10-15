@@ -4,9 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import time
 import tkinter as tk
-from tkinter import ttk
 import uuid
-from PIL import ImageTk
+from PIL import Image, ImageTk
 from pokato.core.game import Game
 from pokato.simulator.bots import choose_action
 from pokato.simulator.render import render, NAMES
@@ -16,8 +15,9 @@ from pokato.vision.reader import Reader, ReadError
 from pokato.vision.tracker import Tracker
 from pokato.analysis.history import History
 from pokato.analysis.coach import analyze
+from pokato.ui.window import WindowChrome, BG, TEXT, MUTED, ACCENT
 
-BG, PANEL, TEXT, MUTED, ACCENT = "#101c1d", "#192c29", "#e4eee7", "#9db5a9", "#e2c38a"
+PANEL = "#1a212c"
 
 
 class App:
@@ -41,25 +41,33 @@ class App:
         self.last_seen = 0
         self.last_error = None
         root.title("Pokato · local Hold'em practice")
-        root.configure(bg=BG)
-        root.resizable(False, False)
-        root.geometry("+30+30")
+        root.geometry("1040x970+24+24")
         root.protocol("WM_DELETE_WINDOW", self.close)
-        self.table = tk.Label(root, borderwidth=0, highlightthickness=0, bg=BG)
-        self.table.pack()
-        controls = tk.Frame(root, bg=BG, padx=18, pady=10)
+        root.bind("<Alt-F4>", lambda e: self.close())
+        self.chrome = WindowChrome(root, "pokato", "PRACTICE TABLE", self.close,
+                                   minimum=(WIDTH + 24, HEIGHT + 140))
+        self.viewport = tk.Frame(self.chrome.body, bg=BG)
+        self.viewport.pack(fill="both", expand=True, padx=10, pady=(8, 0))
+        self.table = tk.Label(self.viewport, borderwidth=0, highlightthickness=0, bg=BG)
+        self.table.place(relx=0.5, rely=0.5, anchor="center", width=WIDTH, height=HEIGHT)
+        self.viewport.bind("<Configure>", self.resize_table)
+        self.table_frame = None
+        self.table_size = None
+        controls = tk.Frame(self.chrome.body, bg=BG, padx=12, pady=10)
         controls.pack(fill="x")
         self.fold = self.button(controls, "Fold", lambda: self.hero_action("F"))
         self.call = self.button(controls, "Check", self.call_action)
-        tk.Label(controls, text="Raise to", bg=BG, fg=MUTED).pack(side="left", padx=(12, 4))
+        tk.Label(controls, text="Raise to", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(8, 4))
         self.raise_to = tk.StringVar(value="30")
-        self.raise_entry = tk.Entry(controls, textvariable=self.raise_to, width=8, bg=PANEL, fg=TEXT, insertbackground=TEXT)
+        self.raise_entry = tk.Entry(controls, textvariable=self.raise_to, width=7, bg=PANEL, fg=TEXT,
+                                   insertbackground=TEXT, relief="flat", font=("Segoe UI", 11))
         self.raise_entry.pack(side="left", padx=4)
         self.raise_button = self.button(controls, "Raise", lambda: self.hero_action("R"))
         self.next_button = self.button(controls, "Deal next hand", self.new_hand)
         self.pause_button = self.button(controls, "Pause bots", self.toggle_pause)
-        self.message = tk.StringVar(value="Practice chips · automatic rebuy at 0 · window capture reads only the local table")
-        tk.Label(root, textvariable=self.message, bg=BG, fg=MUTED, anchor="w", padx=18, pady=5).pack(fill="x")
+        self.button(controls, "Show coach", self.open_hud)
+        self.message = tk.StringVar(value="LOCAL PRACTICE · 5/10 CHIPS · NO RAKE")
+        self.chrome.hint.configure(textvariable=self.message)
         self.build_hud()
         self.new_hand()
         root.after(350, self.observe)
@@ -68,57 +76,118 @@ class App:
     @staticmethod
     def button(parent, text, command):
         button = tk.Button(parent, text=text, command=command, bg=PANEL, fg=TEXT,
-                           activebackground="#325449", activeforeground=TEXT, relief="flat", padx=12, pady=7)
+                           activebackground="#303b48", activeforeground=TEXT, relief="flat", bd=0,
+                           cursor="hand2", font=("Segoe UI", 10), padx=12, pady=8)
         button.pack(side="left", padx=4)
         return button
 
-    def label(self, text="", size=11, color=TEXT, bold=False, wrap=310):
-        label = tk.Label(self.hud_body, text=text, bg=BG, fg=color, justify="left", anchor="w",
-                         font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=wrap)
-        label.pack(fill="x", pady=4)
+    def label(self, parent, text="", size=10, color=TEXT, bold=False):
+        label = tk.Label(parent, text=text, bg=parent.cget("bg"), fg=color, justify="left", anchor="w",
+                         font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=330)
+        label.pack(fill="x", pady=3)
+        label.bind("<Configure>", lambda e: label.configure(wraplength=max(120, e.width - 3)))
         return label
+
+    def panel(self, parent, title):
+        panel = tk.Frame(parent, bg=PANEL, padx=16, pady=11, highlightthickness=1, highlightbackground="#29323e")
+        panel.pack(fill="x", pady=(0, 10))
+        self.label(panel, title, 8, MUTED, True)
+        return panel
 
     def build_hud(self):
         self.hud = tk.Toplevel(self.root)
         self.hud.title("Pokato · practice coach")
-        self.hud.configure(bg=BG)
-        self.hud.geometry(f"410x840+{min(1035, self.root.winfo_screenwidth() - 430)}+30")
-        self.hud.minsize(380, 500)
+        self.hud.geometry(f"440x880+{min(1080, self.root.winfo_screenwidth() - 460)}+24")
         self.hud.attributes("-topmost", True)
         self.hud.protocol("WM_DELETE_WINDOW", self.hud.withdraw)
-        # Scrollable body also works on laptops shorter than the full panel.
-        canvas = tk.Canvas(self.hud, bg=BG, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(self.hud, orient="vertical", command=canvas.yview)
-        scrollbar.pack(side="right", fill="y")
+        self.hud_chrome = WindowChrome(self.hud, "pokato", "COACH", self.hud.withdraw,
+                                      minimum=(360, 440), alpha=0.94)
+        self.hud_chrome.hint.configure(text="Scroll for detail · drag edges")
+        self.opacity_button = tk.Button(self.hud_chrome.footer, text="Glass 94%", command=self.cycle_opacity,
+                                        bg=BG, fg=MUTED, activebackground=PANEL, activeforeground=TEXT,
+                                        relief="flat", bd=0, font=("Segoe UI", 8), cursor="hand2")
+        self.opacity_button.pack(side="right", padx=8)
+        self.hud.bind("<Escape>", lambda e: self.hud.withdraw())
+        canvas = tk.Canvas(self.hud_chrome.body, bg=BG, highlightthickness=0)
+        self.hud_canvas = canvas
         canvas.pack(side="left", fill="both", expand=True)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        self.hud_body = tk.Frame(canvas, bg=BG, padx=18, pady=14)
+        self.hud_body = tk.Frame(canvas, bg=BG, padx=16, pady=12)
         body_id = canvas.create_window((0, 0), window=self.hud_body, anchor="nw")
         self.hud_body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(body_id, width=e.width))
-        canvas.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-int(e.delta / 120), "units"))
-        self.label("POKATO / COACH", 17, ACCENT, True)
-        self.label("LOCAL SIMULATOR · PIXEL INPUT", 9, MUTED)
-        self.capture_status = self.label("Waiting for the first screen capture…", 10, MUTED)
-        self.state_label = self.label("", 12, TEXT, True)
-        self.cards_label = self.label("", 14, ACCENT, True)
-        self.metrics = self.label("", 11)
-        self.chart = tk.Canvas(self.hud_body, width=350, height=70, bg=BG, highlightthickness=0)
+        canvas.bind("<Configure>", lambda e: self.layout_hud(e.width, body_id))
+        self.hud.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-int(e.delta / 120), "units"))
+        self.capture_status = self.label(self.hud_body, "● Connecting to practice table", 9, ACCENT)
+        summary = self.panel(self.hud_body, "CURRENT HAND")
+        self.state_label = self.label(summary, "", 10, MUTED)
+        self.cards_label = self.label(summary, "", 22, TEXT, True)
+        self.board_label = self.label(summary, "Board not dealt", 11, MUTED)
+        self.pot_label = self.label(summary, "", 11, TEXT)
+        self.columns = tk.Frame(self.hud_body, bg=BG)
+        self.columns.pack(fill="x")
+        self.analysis_column = tk.Frame(self.columns, bg=BG)
+        self.detail_column = tk.Frame(self.columns, bg=BG)
+        odds = self.panel(self.analysis_column, "PROBABILITIES")
+        numbers = tk.Frame(odds, bg=PANEL)
+        numbers.pack(fill="x", pady=(4, 7))
+        for column in (0, 1):
+            numbers.columnconfigure(column, weight=1)
+        self.equity_number = tk.Label(numbers, text="—", bg=PANEL, fg=ACCENT, font=("Segoe UI", 26, "bold"), anchor="w")
+        self.equity_number.grid(row=0, column=0, sticky="w")
+        self.price_number = tk.Label(numbers, text="—", bg=PANEL, fg=TEXT, font=("Segoe UI", 26, "bold"), anchor="w")
+        self.price_number.grid(row=0, column=1, sticky="w")
+        for col, text in enumerate(("RANGE EQUITY", "BREAK-EVEN")):
+            tk.Label(numbers, text=text, bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).grid(row=1, column=col, sticky="w")
+        self.chart = tk.Canvas(odds, width=300, height=47, bg=PANEL, highlightthickness=0)
         self.chart.pack(fill="x", pady=6)
-        self.recommendation = self.label("Waiting for your turn", 13, ACCENT, True)
-        self.action_label = self.label("", 11)
-        self.assumptions = self.label("", 9, MUTED)
-        self.label("OBSERVED OPPONENTS", 11, TEXT, True)
-        self.profile_label = self.label("", 10, MUTED)
-        self.label("RECENT ACTIONS", 11, TEXT, True)
-        self.events_label = self.label("", 10, MUTED)
-        self.label("Ranges and response models are heuristic. This prototype does not solve poker or predict winnings.", 9, MUTED)
-        self.label("Window capture reads only the practice table. Minimize it to stop advice. Reopen HUD with H.", 9, MUTED)
-        self.root.bind("h", lambda e: self.hud.deiconify())
+        self.chart.bind("<Configure>", lambda e: self.draw_chart())
+        self.metrics = self.label(odds, "Waiting for your turn", 9, MUTED)
+        decision = self.panel(self.analysis_column, "YOUR DECISION")
+        self.recommendation = self.label(decision, "Waiting for your turn", 16, ACCENT, True)
+        self.action_label = self.label(decision, "", 11)
+        self.assumptions = self.label(decision, "", 9, MUTED)
+        evidence = self.panel(self.detail_column, "OPPONENT EVIDENCE")
+        self.profile_label = self.label(evidence, "", 10, MUTED)
+        recent = self.panel(self.detail_column, "ACTION HISTORY")
+        self.events_label = self.label(recent, "", 10, MUTED)
+        self.label(self.hud_body, "Local practice · estimates depend on assumed ranges and response models.", 8, MUTED)
+        self.root.bind("h", lambda e: self.open_hud())
+
+    def open_hud(self):
+        if hasattr(self, "hud_chrome"):
+            self.hud_chrome.restore()
+
+    def cycle_opacity(self):
+        levels = (0.94, 0.88, 1.0)
+        current = float(self.hud.attributes("-alpha"))
+        index = min(range(len(levels)), key=lambda i: abs(levels[i] - current))
+        opacity = levels[(index + 1) % len(levels)]
+        self.hud.attributes("-alpha", opacity)
+        self.opacity_button.configure(text=f"Glass {opacity:.0%}")
+
+    def layout_hud(self, width, body_id):
+        self.hud_canvas.itemconfigure(body_id, width=width)
+        wide = width >= 740
+        self.columns.columnconfigure(0, weight=3, uniform="hud")
+        self.columns.columnconfigure(1, weight=2 if wide else 0, uniform="hud" if wide else "")
+        self.analysis_column.grid(row=0, column=0, sticky="nsew", padx=(0, 10 if wide else 0))
+        self.detail_column.grid(row=0 if wide else 1, column=1 if wide else 0, sticky="nsew")
+
+    def resize_table(self, event=None):
+        if self.table_frame is None:
+            return
+        scale = max(1.0, min(self.viewport.winfo_width() / WIDTH, self.viewport.winfo_height() / HEIGHT))
+        size = (round(WIDTH * scale), round(HEIGHT * scale))
+        if size == self.table_size and event is not None:
+            return
+        self.table_size = size
+        frame = self.table_frame if size == (WIDTH, HEIGHT) else self.table_frame.resize(size, Image.Resampling.NEAREST)
+        self.photo = ImageTk.PhotoImage(frame)
+        self.table.configure(image=self.photo)
+        self.table.place_configure(width=size[0], height=size[1])
 
     def draw(self):
-        self.photo = ImageTk.PhotoImage(render(self.game))
-        self.table.configure(image=self.photo)
+        self.table_frame = render(self.game)
+        self.resize_table()
         legal = self.game.legal()
         turn = self.game.actor == 0
         self.fold.configure(state="normal" if turn else "disabled")
@@ -135,6 +204,8 @@ class App:
         self.action_label.configure(text="")
         self.assumptions.configure(text="")
         self.metrics.configure(text="")
+        self.equity_number.configure(text="—")
+        self.price_number.configure(text="—")
         self.chart.delete("all")
 
     def new_hand(self):
@@ -173,7 +244,7 @@ class App:
         if self.closed:
             return
         try:
-            if not self.root.winfo_viewable():
+            if not self.root.winfo_viewable() or self.chrome.native.minimized():
                 raise ReadError("Practice window is minimized")
             o = self.reader.read(capture_widget(self.table))
             self.tracker.accept(o)
@@ -186,7 +257,7 @@ class App:
                 self.invalidate("Calculating…" if o.actor == 0 else "Waiting for your turn…")
                 self.current_key = key
                 self.update_observed(o)
-            self.capture_status.configure(text=f"Screen verified · template match {o.confidence:.1%} · hand {o.hand}")
+            self.capture_status.configure(text=f"● Observing practice table   ·   Hand {o.hand}", fg=ACCENT)
             if self.future is not None and self.future.done():
                 future, job_key = self.future, self.future_key
                 self.future = None
@@ -199,17 +270,23 @@ class App:
                 self.future = self.executor.submit(analyze, o, profiles, tuple(self.tracker.events), self.samples)
         except (ReadError, OSError, ValueError) as exc:
             self.last_error = str(exc)
-            self.capture_status.configure(text=f"Capture paused: {exc}")
+            self.capture_status.configure(text=f"○ Capture paused: {exc}", fg="#e8b18d")
             self.invalidate("Advice withheld · verify table visibility")
             self.state_label.configure(text="State unverified")
             self.cards_label.configure(text="")
+            self.board_label.configure(text="")
+            self.pot_label.configure(text="")
         self.root.after(200, self.observe)
 
     def update_observed(self, o):
         streets = {"P": "PREFLOP", "F": "FLOP", "T": "TURN", "R": "RIVER", "X": "COMPLETE"}
         position = ["BTN", "SB", "BB", "UTG", "HJ", "CO"][(0 - o.button) % 6]
-        self.state_label.configure(text=f"{streets[o.street]} · You: {position}\nPot {o.pot} · To call {o.call} chips")
-        self.cards_label.configure(text=f"{' '.join(o.hole)}\n{' '.join(o.board) or 'Board not dealt'}")
+        self.state_label.configure(text=f"{streets[o.street]}   /   {position}")
+        symbols = {"c": "♣", "d": "♦", "h": "♥", "s": "♠"}
+        pretty = lambda cards: "   ".join(c[0] + symbols[c[1]] for c in cards)
+        self.cards_label.configure(text=pretty(o.hole))
+        self.board_label.configure(text=pretty(o.board) or "Board not dealt")
+        self.pot_label.configure(text=f"Pot  {o.pot}     ·     To call  {o.call}")
         rows = []
         for i in range(1, 6):
             p = self.history.profile(i)
@@ -227,19 +304,25 @@ class App:
         eq = advice.equity
         method = f"Exact enumeration · {eq.samples} combinations" if eq.exact else f"Monte Carlo · {eq.samples} samples"
         interval = "" if eq.exact else f" ± {1.96 * eq.standard_error:.1%} sampling"
-        odds = f"Break-even equity {advice.threshold:.1%}" if advice.actions else "Per-pot odds unavailable"
-        self.metrics.configure(text=f"{advice.hand_name}\nRange equity {eq.share:.1%}{interval}\n{odds}\n{method}")
-        self.chart.delete("all")
-        for y, label, value, color in ((15, "Equity", eq.share, "#86c6a4"), (45, "Price", advice.threshold, ACCENT)):
-            self.chart.create_text(0, y, text=label, fill=MUTED, anchor="w", font=("Segoe UI", 10))
-            self.chart.create_rectangle(60, y - 7, 340, y + 7, fill=PANEL, outline="")
-            if advice.actions or label == "Equity":
-                self.chart.create_rectangle(60, y - 7, 60 + 280 * value, y + 7, fill=color, outline="")
-        self.recommendation.configure(text=advice.recommendation)
+        self.equity_number.configure(text=f"{eq.share:.0%}")
+        self.price_number.configure(text=f"{advice.threshold:.0%}" if advice.actions else "—")
+        self.metrics.configure(text=f"{advice.hand_name} · {method}" + (f"\n{interval.strip()}" if interval else ""))
+        self.draw_chart()
+        self.recommendation.configure(text=advice.recommendation.replace(" · best modeled EV", ""))
         self.action_label.configure(text="\n".join(f"{a.label}: {a.ev:+.1f} chips" +
                                                    (f" ± {1.96 * a.error:.1f} sampling" if a.error else "")
                                                    for a in advice.actions))
         self.assumptions.configure(text=advice.assumptions)
+
+    def draw_chart(self):
+        self.chart.delete("all")
+        if self.advice is None:
+            return
+        right = max(120, self.chart.winfo_width() - 4)
+        for y, value, color in ((12, self.advice.equity.share, ACCENT), (35, self.advice.threshold, "#8b9db6")):
+            self.chart.create_rectangle(0, y - 4, right, y + 4, fill="#293342", outline="")
+            if self.advice.actions or y == 12:
+                self.chart.create_rectangle(0, y - 4, right * value, y + 4, fill=color, outline="")
 
     def close(self):
         if self.closed:
