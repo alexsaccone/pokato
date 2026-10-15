@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pokato"
-version = "0.2.0"
+version = "0.3.0"
 description = "A local, screen-reading Texas Hold'em practice coach"
 requires-python = ">=3.10"
 dependencies = ["Pillow>=11.2,<13"]

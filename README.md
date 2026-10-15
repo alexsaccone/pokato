@@ -18,8 +18,8 @@ For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python
 Tk, Pillow, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
-The saved-hand review milestone is **`dist\Pokato-Review.exe`**, built alongside
-earlier executables so a running program does not need to be replaced.
+The Bayesian river-analysis milestone is **`dist\Pokato-Bayes.exe`**, built
+alongside earlier executables so a running program does not need to be replaced.
 
 To run from source:
 
@@ -97,11 +97,12 @@ practice window withholds advice.
 | Range equity | Expected showdown share against heuristic weighted ranges, including ties and sampled future cards |
 | Exact river | Enumerates compatible opponent assignments up to 20,000 candidate deals; range assumptions remain uncertain |
 | Break-even equity | Call cost / eligible pot after calling; shown when there is one contestable pot |
-| Check/call EV | Contribution-specific payouts minus call cost; freezes contributions after your action, omitting remaining decisions and future betting |
-| Raise EV | One sizing with strength-conditioned folds/calls, then showdown; no reraises or future bets |
+| Heads-up river EV | Bounded tree with checks, calls, folds, multiple bet sizes and reraises; later decisions use updated ranges |
+| Other check/call EV | Contribution-specific payouts minus call cost; freezes contributions after your action, omitting remaining decisions and future betting |
+| Other raise EV | One sizing with strength-conditioned folds/calls, then showdown; no reraises or future bets |
 | ± intervals | Approximate 95% Monte Carlo sampling intervals, excluding model uncertainty |
 | Sampling tie | The estimated ranking is unclear at the current sample count |
-| All-in / side pot | Call/check EV includes per-pot eligibility, integer split payouts and refunds; raises are omitted in these states |
+| All-in / side pot | Call/check EV includes eligibility, integer splits and refunds; heads-up rivers use the legal tree, other all-in states omit raises |
 
 Recommendations rank supported modeled scenarios. They are not GTO solutions or
 evidence of a winning strategy. The coach conditions weighted opponent ranges on
@@ -110,7 +111,8 @@ HUD equity is payout share weighted over contestable pots you can win.
 See [architecture and limitations](docs/ARCHITECTURE.md).
 
 Opponent statistics persist in `%USERPROFILE%\.pokato\practice.sqlite3`, unless
-`--database` is supplied. Identities refer to fixed practice characters. VPIP/PFR
+`--database` is supplied. Live adaptation uses **only the current app session**;
+older sessions remain available for replay. Identities refer to fixed practice characters. VPIP/PFR
 denominators count hands with an observed preflop decision; fold-versus-bet
 counts actual facing-bet decisions. Raw counts are shown, with smoothed rates
 used internally. The normal app retains no screenshots or video. Delete the
@@ -158,6 +160,34 @@ history lacks cards and stacks and cannot be reconstructed retroactively. Only
 newly observed hands appear in review. Structured snapshots and scenarios persist
 in the same database; screenshots and video remain unsaved by normal operation.
 
+## Bayesian session adaptation and river trees (milestone 3)
+
+Unfamiliar players start with conservative response priors, updated only by
+observed decisions in the current session. **Details** shows baseline/adapting
+status, opportunity counts, prior weight and marginal posterior intervals.
+Starting the app creates a fresh session. Historical data remains in replay;
+it does not seed a new player's estimates.
+
+On supported heads-up rivers, the coach compares checks/calls/folds, one-third-
+pot, two-thirds-pot and all-in sizings, with legal reraises. It searches up to
+three additional bets/raises, then permits fold/call only. Opponent responses
+update their range before the hero chooses a continuation. The compact HUD shows
+the top three actions; **Details** and saved replay show every action and the
+response branches. New snapshots freeze the Bayesian model at capture time.
+
+These are posterior-mean best responses within a restricted model, not GTO or
+proof of a winning strategy. [River model, limits and benchmark results](docs/RIVER.md)
+explains the priors, context borrowing, hand-strength heuristics, fallback rules
+and posterior intervals. Turn/flop/multiway decisions retain labeled scenarios.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/river_smoke.py
+.\.venv\Scripts\python.exe scripts/benchmark_river.py --pairs 1200 --seed 31
+```
+
+Build with `-ExecutableName Pokato-Bayes`. The packaged executable also supports
+`--self-test-river <absolute-report-path>` for the new capture/model/replay path.
+
 ## Verify
 
 ```powershell
@@ -166,6 +196,7 @@ in the same database; screenshots and video remain unsaved by normal operation.
 .\.venv\Scripts\python.exe scripts/window_smoke.py
 .\.venv\Scripts\python.exe scripts/readability_smoke.py
 .\.venv\Scripts\python.exe scripts/replay_smoke.py
+.\.venv\Scripts\python.exe scripts/river_smoke.py
 ```
 
 Unit tests need no display. The smoke check opens and closes the local UI,

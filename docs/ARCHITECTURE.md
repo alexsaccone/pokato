@@ -77,8 +77,14 @@ river boards and three candidate EVs, without changing OS DPI settings.
 
 ## Opponent modeling
 
+Milestone 3 adds [session-only Bayesian adaptation and a heads-up river tree](RIVER.md).
+The response model and river engine are in `analysis/bayes.py` and
+`analysis/river.py`; `analysis/benchmark.py` supplies a synthetic paired evaluation.
+
 SQLite keys `(session UUID, hand, sequence)` deduplicate repeated captures and
 avoid restart collisions. Seat IDs refer only to fixed simulator characters.
+Live profile queries are now restricted to the current session. Earlier sessions
+remain archived for review and do not seed unfamiliar players' live estimates.
 VPIP uses a Beta(2,3) smoothing prior; facing-bet fold rate uses Beta(3,3).
 Raw counts accompany estimates. Current-hand observations are included in these
 statistics; this prototype does not fit calibrated historical population models.
@@ -103,6 +109,8 @@ overly conflicting ranges fail explicitly. Folded players' hidden distributions
 are omitted. Exact enumeration removes sampling uncertainty, not range uncertainty.
 
 EV is relative to folding now (zero); prior matched contributions are sunk.
+Supported heads-up river decisions now use the bounded tree documented in
+[RIVER.md](RIVER.md). The following frozen-contribution limits apply to other states.
 Existing guaranteed hero refunds are excluded from incremental EV. Check/call
 freezes contributions after the hero acts, then runs to showdown. It omits
 remaining decisions, which may include calls/folds still owed on this street.
@@ -123,7 +131,9 @@ Three additive SQLite tables store hand summaries, versioned original snapshots,
 and separate user scenarios. Snapshot keys are session/hand/event-count. Identical
 captures are ignored. Originals contain only validated observations, full observed
 event prefixes and profile snapshots from that moment; there are no hidden cards
-or future observations. Existing event-only history remains intact but cannot
+or future observations. New version-2 payloads also freeze session-response model
+counts. Older payloads without them use baseline response models.
+Existing event-only history remains intact but cannot
 provide retroactive replays. Completion flags distinguish complete/partial hands.
 
 The replay viewer renders observations directly, independently of `Game`. Its
@@ -138,7 +148,7 @@ bounds. Bot pause state is restored when review closes.
 
 1. Richer transition validation, multi-sizing side-pot raises and replay export.
 2. Calibrated opponent likelihoods and held-out policy benchmarks.
-3. Better baseline strategies and continuation betting models.
+3. Calibrated population priors, richer size policies and turn/flop continuation models.
 4. Authorized video files and independently calibrated skins.
 5. External adapters after platform-specific permission and policy review.
 

@@ -116,3 +116,27 @@ respectively. Use the unit discovery commands above with the corresponding
 pattern. `scripts/validate.py` checks the complete project; the existing desktop
 and readability smoke checks also apply. The four milestone-2 commits are local;
 pushing them to GitHub is a separate step.
+
+## Milestone 3: Bayesian sessions and river search
+
+This milestone is committed in four dependency-ordered groups:
+
+1. `feat(model): add session-scoped Bayesian response adaptation` — response
+   posteriors, idempotent session evidence, session-only profiles, versioned
+   frozen replay models and isolation/shrinkage tests.
+2. `feat(analysis): search heads-up river betting trees over public beliefs` —
+   legal river transitions, multi-sizing best response, observed/future response
+   range updates, model-aware EV integration and legality/no-clairvoyance tests.
+3. `feat(ui): expose session evidence and river response branches` — HUD/replay
+   model wiring, evidence/branch explanations, actual-window river diagnostics
+   and the packaged river smoke entry point.
+4. `test: add paired river benchmarks and milestone documentation` — held-out
+   synthetic prediction tests, matched-deal strategy comparisons, version 0.3,
+   model assumptions, benchmark results and setup instructions.
+
+The full checks are `scripts/validate.py`, `scripts/river_smoke.py`,
+`scripts/replay_smoke.py` and `scripts/readability_smoke.py`. Run
+`scripts/benchmark_river.py --pairs 1200 --seed 31` to reproduce the documented
+synthetic report. The frozen build supports `--self-test-river <report-path>`.
+Executables and runtime reports remain ignored. These commits are local;
+pushing is separate.
