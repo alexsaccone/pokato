@@ -78,8 +78,11 @@ class TurnTree(RiverTree):
         self.chance_cache[key] = result
         return result
 
-    def run(self):
-        base = super().run()
+    def run(self, details=True):
+        base = super().run(details)
+        if not details:
+            return TurnResult(base.values, (), (), self.nodes + self.chance_nodes,
+                              base.combinations, self.cap, (), self.river_cap)
         evidence = [line.replace("River/", "Turn/") for line in base.evidence]
         # A context's evidence is independent of the river card. Avoid
         # repeating identical response intervals for all 46 possible cards.

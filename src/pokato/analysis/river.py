@@ -37,6 +37,14 @@ def card_table(hero, board, holes):
     return tuple(outcomes), tuple(strengths)
 
 
+@lru_cache(maxsize=8192)
+def terminal_awards(invested, folded, villain, button):
+    """Chip tiers do not depend on the particular river card or policy."""
+    pots = build_pots(invested, folded)
+    return tuple(sum(payout(p, {0: (hero,), villain: (other,)}, button, 6).get(0, 0) for p in pots)
+                 for hero, other in ((1, 0), (1, 1), (0, 1)))
+
+
 @dataclass(frozen=True)
 class Move:
     code: str
@@ -102,12 +110,14 @@ class RiverTree:
         self.contexts = {}
         self.root = self._initial(events)
         explicit = ranges is not None and ranges.get(self.villain) is not None
+        self.explicit_range = explicit
         prior_events = events if explicit else tuple(e for e in events if e.street != self.street)
         _, distributions = distributions_for(o.hole, o.board, [profile], prior_events, ranges)
         dist = distributions[0]
         self.holes = tuple(dist.holes)
         weights = [dist.cumulative[0]] + [b-a for a, b in zip(dist.cumulative, dist.cumulative[1:])]
         self.belief = tuple(w/dist.total for w in weights)
+        self.prior_belief = self.belief
         self.outcomes, self.strengths = card_table(tuple(o.hole), tuple(o.board), self.holes)
         if not explicit:
             self.belief = self.condition_observed(events)
@@ -255,11 +265,7 @@ class RiverTree:
 
     def terminal(self, state, belief):
         folded = self.folded_seats | ({0 if state.folded == 0 else self.villain} if state.folded >= 0 else set())
-        pots = build_pots(state.invested, folded)
-        awards = []
-        for hero_rank, villain_rank in ((1, 0), (1, 1), (0, 1)):
-            ranks = {0: (hero_rank,), self.villain: (villain_rank,)}
-            awards.append(sum(payout(p, ranks, self.o.button, 6).get(0, 0) for p in pots))
+        awards = terminal_awards(state.invested, tuple(sorted(folded)), self.villain, self.o.button)
         masses = self.outcome_cache.get(belief)
         if masses is None:
             masses = tuple(math.fsum(w for w, outcome in zip(belief, self.outcomes) if outcome == i) for i in range(3))
@@ -315,16 +321,16 @@ class RiverTree:
         self.memo[key] = result
         return result
 
-    def run(self):
+    def run(self, details=True):
         values, branches = [], []
         for move in self.moves(self.root, root=True):
             node = self.solve(self.step(self.root, move), self.belief)
             values.append((move.label, node.ev))
             branches.extend(Branch(move.label, response.label, p, child.ev,
                                    child.choice.label if child.choice else "terminal payout")
-                            for response, p, child in node.branches)
+                            for response, p, child in node.branches if details)
         evidence = []
-        for context, posterior in sorted(self.contexts.items()):
+        for context, posterior in sorted(self.contexts.items()) if details else ():
             intervals = []
             for action, mean in zip(posterior.actions, posterior.mean):
                 low, high = posterior.interval(action)
