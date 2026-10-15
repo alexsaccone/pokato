@@ -149,6 +149,20 @@ class TurnTests(unittest.TestCase):
         explicit = [TurnTree(o, Profile(1), events, {1: parse_range("AsAh, QsQh")}, model) for model in (aggressive, passive)]
         self.assertEqual(explicit[0].belief, explicit[1].belief)
 
+    def test_round_that_started_multiway_falls_back_instead_of_losing_raise_rights(self):
+        # Seat 2's full opening bet establishes a 50-chip raise increment.
+        # Ignoring it would misclassify seat 1's raise and deny hero a legal reraise.
+        events = tuple(Event(i+1, seat, "T", action, amount) for i, (seat, action, amount) in enumerate(
+            ((1, "K", 0), (2, "R", 50), (0, "C", 50), (1, "R", 100), (2, "F", 0))))
+        seats = (Seat("A", 250, 50, 150), Seat("A", 200, 100, 200), Seat("F", 250, 50, 150),
+                 *(Seat("F", 1000, 0, 0) for _ in range(3)))
+        o = replace(fixture(), seats=seats, call=50, pot=500, minimum=150, maximum=300)
+        with self.assertRaisesRegex(UnsupportedRiver, "multiway"):
+            TurnTree(o, Profile(1), events)
+        advice = analyze(o, [Profile(i) for i in range(6)], events, samples=20, ranges={1: parse_range("QsQh")})
+        self.assertEqual(advice.engine, "scenario")
+        self.assertIn("multiway", advice.assumptions)
+
     def test_coach_routes_turn_and_retains_explicit_fallbacks(self):
         profiles = [Profile(i) for i in range(6)]
         ranges = {1: parse_range("AsAh, QsQh")}

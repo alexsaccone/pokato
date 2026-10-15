@@ -28,7 +28,7 @@ Smoke tests compare observations against privileged simulator truth only for QA.
 | `core` | Best-five hand ranks, betting legality, turn order, chip accounting and settlement |
 | `simulator` | Fixed visible skin, ordinary readable text fields and simple opponents |
 | `vision` | Capture, glyph recognition, immutable observations and reconstructed event ledger |
-| `analysis` | SQLite statistics, range weights, equity and action scenarios |
+| `analysis` | Session Bayesian statistics, weighted ranges, pot equity, turn/river trees and policy sensitivity |
 | `replay` | Append-only observed snapshots, saved scenarios and public-state rendering |
 | `ui/replay.py` | Timeline browsing, range sensitivity, corrections and per-pot results |
 | `app.py` / `ui` | Custom frameless controls, responsive HUD, background analysis and result freshness |
@@ -80,6 +80,9 @@ river boards and three candidate EVs, without changing OS DPI settings.
 Milestone 3 adds [session-only Bayesian adaptation and a heads-up river tree](RIVER.md).
 The response model and river engine are in `analysis/bayes.py` and
 `analysis/river.py`; `analysis/benchmark.py` supplies a synthetic paired evaluation.
+Milestone 4 adds [turn search and approximate policy sensitivity](TURN.md) in
+`analysis/turn.py` and `analysis/uncertainty.py`. River-card solvers reuse immutable
+rank tables and chip-tier payouts, but keep separate card-conditioned beliefs.
 
 SQLite keys `(session UUID, hand, sequence)` deduplicate repeated captures and
 avoid restart collisions. Seat IDs refer only to fixed simulator characters.
@@ -103,14 +106,18 @@ Equity includes ties and weights payout share over pots the hero can contest,
 excluding refunds. Overall payout standard error retains covariance across pots.
 
 River deals are enumerated exactly when the product of range sizes is at most
-20,000. Other states use seeded Monte Carlo. Whole-deal rejection conditions the
+20,000. Supported heads-up turn trees also enumerate every hand/river-card pair
+and compute exact frozen-contribution showdown payouts. Other states use seeded Monte Carlo. Whole-deal rejection conditions the
 product of weighted opponent ranges on card compatibility. Fully blocked or
 overly conflicting ranges fail explicitly. Folded players' hidden distributions
 are omitted. Exact enumeration removes sampling uncertainty, not range uncertainty.
 
 EV is relative to folding now (zero); prior matched contributions are sunk.
-Supported heads-up river decisions now use the bounded tree documented in
-[RIVER.md](RIVER.md). The following frozen-contribution limits apply to other states.
+Supported heads-up river and turn decisions use the bounded trees documented in
+[RIVER.md](RIVER.md) and [TURN.md](TURN.md). Turn strategy sensitivity uses a
+deterministic posterior-policy ensemble with reduced-range quadrature; its
+approximate bands are separate from deal-sampling error and true-EV uncertainty.
+The following frozen-contribution limits apply to other states.
 Existing guaranteed hero refunds are excluded from incremental EV. Check/call
 freezes contributions after the hero acts, then runs to showdown. It omits
 remaining decisions, which may include calls/folds still owed on this street.
@@ -148,7 +155,7 @@ bounds. Bot pause state is restored when review closes.
 
 1. Richer transition validation, multi-sizing side-pot raises and replay export.
 2. Calibrated opponent likelihoods and held-out policy benchmarks.
-3. Calibrated population priors, richer size policies and turn/flop continuation models.
+3. Calibrated population priors, richer size policies, flop/multiway continuation models and finer policy sensitivity.
 4. Authorized video files and independently calibrated skins.
 5. External adapters after platform-specific permission and policy review.
 

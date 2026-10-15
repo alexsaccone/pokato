@@ -140,3 +140,27 @@ The full checks are `scripts/validate.py`, `scripts/river_smoke.py`,
 synthetic report. The frozen build supports `--self-test-river <report-path>`.
 Executables and runtime reports remain ignored. These commits are local;
 pushing is separate.
+
+## Milestone 4: turn analysis and policy sensitivity
+
+Four dependency-ordered commits:
+
+1. `feat(analysis): add public-belief heads-up turn and river search` — exact
+   blocker-aware chance transitions, new-street actor order and betting rights,
+   shared river continuations, bounded search and independent payout/legality tests.
+2. `feat(model): estimate turn EV sensitivity across Bayesian policies` — coherent
+   seeded Dirichlet policy draws, bounded range quadrature, anchored action EV bands,
+   policy agreement, payout caching and uncertainty/reproducibility checks.
+3. `feat(ui): show turn recommendations, policy sensitivity and river cards` —
+   coach routing, exact showdown equity, compact agreement, detailed EV bands and
+   card graphics, frozen replay, turn smoke and DPI/layout regression checks.
+4. `test: document and package milestone 4 turn analysis` — fixed-fixture latency
+   and resolution benchmark, regression coverage, model limits, version 0.4 and
+   one updated `dist\Pokato.exe` with a packaged turn self-test.
+
+Validation: `scripts/validate.py`, `scripts/turn_smoke.py`,
+`scripts/river_smoke.py`, `scripts/replay_smoke.py` and
+`scripts/readability_smoke.py`. Reproduce the sensitivity resolution diagnostics
+with `scripts/benchmark_turn.py --draws 24 --hands 32 --reference-hands 64 --seed 31`.
+The executable supports `--self-test-turn <absolute-report-path>`; no separately
+named milestone executable is created. Binary/report artifacts remain ignored.

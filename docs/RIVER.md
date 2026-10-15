@@ -114,5 +114,6 @@ Seed 31, 1,200 pairs per synthetic opponent:
 
 The folder result is inconclusive. These synthetic policies and tiny fixed ranges
 do not establish human performance, general exploitability or online winnings.
-Future work includes calibrated population priors, richer bet-size/context
-likelihoods, posterior strategy uncertainty and turn/flop continuation values.
+Milestone 4 adds [heads-up turn continuation values and approximate posterior-policy
+sensitivity](TURN.md). Future work includes calibrated population priors, richer
+bet-size/context likelihoods, finer uncertainty integration and flop/multiway play.

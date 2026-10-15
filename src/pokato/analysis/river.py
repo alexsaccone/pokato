@@ -96,11 +96,12 @@ class RiverTree:
     board_length = 5
 
     def __init__(self, o, profile, events=(), ranges=None, model=None, aggression_cap=3, node_budget=5000):
+        name = "Turn" if self.street == "T" else "River"
         if o.street != self.street or o.actor != 0 or len(o.board) != self.board_length:
-            raise UnsupportedRiver(f"{self.street} tree requires your matching street decision")
+            raise UnsupportedRiver(f"{name} tree requires your matching street decision")
         live = [i for i, s in enumerate(o.seats) if s.status != "F"]
         if len(live) != 2 or 0 not in live:
-            raise UnsupportedRiver("River tree requires exactly two live players")
+            raise UnsupportedRiver(f"{name} tree requires exactly two live players")
         self.o, self.villain = o, next(i for i in live if i != 0)
         if profile.seat != self.villain:
             raise ValueError("Opponent profile does not match the live player")
@@ -143,10 +144,10 @@ class RiverTree:
         return child
 
     def condition_observed(self, events):
-        """Condition automatic ranges on actual river decisions using this model.
+        """Condition automatic ranges on current-street decisions using this model.
 
         Explicit user ranges already describe the current range and bypass
-        this step. Preflop/flop/turn inference retains the existing heuristic.
+        this step. Earlier-street inference retains the existing heuristic.
         """
         river = [e for e in events if e.street == self.street]
         pot = self.o.pot - sum(e.amount for e in river)
@@ -166,7 +167,7 @@ class RiverTree:
                 raw = tuple(w*p for w, p in zip(belief, likelihood))
                 total = math.fsum(raw)
                 if not total:
-                    raise UnsupportedRiver("Observed river action has zero likelihood under the response model")
+                    raise UnsupportedRiver(f"Observed {self.street} action has zero likelihood under the response model")
                 belief = tuple(w/total for w in raw)
             bets[e.seat] += e.amount
             if e.action == "R" and bets[e.seat]-price >= last:
@@ -178,9 +179,12 @@ class RiverTree:
         return belief
 
     def _initial(self, events):
+        name = "Turn" if self.street == "T" else "River"
         seats = (0, self.villain)
         bets, acted, pending, last = [0, 0], [-1, -1], {0, 1}, 10
         river_events = [e for e in events if e.street == self.street]
+        if any(e.seat not in seats for e in river_events):
+            raise UnsupportedRiver(f"{name} round contains multiway actions; heads-up reconstruction unavailable")
         for e in river_events:
             if e.seat not in seats:
                 continue
@@ -197,7 +201,7 @@ class RiverTree:
             pending.discard(actor)
         observed_bets = tuple(self.o.seats[i].bet for i in seats)
         if river_events and tuple(bets) != observed_bets:
-            raise UnsupportedRiver("Edited river bets disagree with observed actions; using frozen-contribution scenarios")
+            raise UnsupportedRiver(f"Edited {name.lower()} bets disagree with observed actions; using frozen-contribution scenarios")
         if not river_events:
             bets = list(observed_bets)
             if self.o.call:
@@ -209,12 +213,12 @@ class RiverTree:
         stacks = tuple(self.o.seats[i].stack for i in seats)
         expected_call = min(stacks[0], max(bets) - bets[0])
         if self.o.call != expected_call:
-            raise UnsupportedRiver("Observed call cost disagrees with river bets")
+            raise UnsupportedRiver(f"Observed call cost disagrees with {name.lower()} bets")
         if self.o.minimum == self.o.maximum == 0 and stacks[1] > 0 and stacks[0] + bets[0] > max(bets):
             raise UnsupportedRiver("Corrected or unavailable root raise bounds; using frozen-contribution scenarios")
         pending = {i for i in pending if stacks[i] > 0}
         if 0 not in pending:
-            raise UnsupportedRiver("Observed river action order does not match the pending decision")
+            raise UnsupportedRiver(f"Observed {name.lower()} action order does not match the pending decision")
         return State(stacks, tuple(bets), tuple(s.invested for s in self.o.seats), tuple(sorted(pending)), 0, last, tuple(acted))
 
     def moves(self, state, root=False):

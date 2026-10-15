@@ -18,7 +18,7 @@ For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python
 Tk, Pillow, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
-This is the one app for all features, including Bayesian river analysis and hand
+This is the one app for all features, including Bayesian turn/river analysis and hand
 review. Future builds update this same file; close Pokato before rebuilding.
 
 To run from source:
@@ -178,7 +178,8 @@ response branches. New snapshots freeze the Bayesian model at capture time.
 These are posterior-mean best responses within a restricted model, not GTO or
 proof of a winning strategy. [River model, limits and benchmark results](docs/RIVER.md)
 explains the priors, context borrowing, hand-strength heuristics, fallback rules
-and posterior intervals. Turn/flop/multiway decisions retain labeled scenarios.
+and posterior intervals. Milestone 4 extends this to heads-up turns below;
+preflop/flop/multiway decisions retain labeled scenarios.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/river_smoke.py
@@ -187,6 +188,38 @@ and posterior intervals. Turn/flop/multiway decisions retain labeled scenarios.
 
 The packaged `dist\Pokato.exe` also supports
 `--self-test-river <absolute-report-path>` for the new capture/model/replay path.
+
+## Turn analysis and policy sensitivity (milestone 4)
+
+On supported heads-up turns, the coach enumerates every compatible river card,
+updates the opponent range for card removal and modeled actions, and searches
+future river play. The bounded tree permits one additional turn bet/raise and
+one river bet/raise with the existing three sizing choices, then fold/call only.
+This is a restricted continuation model, not a full poker solver.
+
+The compact HUD shows the best full-range modeled action EV and **policy
+agreement**. **Details** adds approximate central 80% policy sensitivity bands
+for every action and a graphic of the three highest/lowest river-card showdown
+equities, with each card's probability. Saved replay shows all cards and the same
+sensitivity calculations using frozen session evidence and deterministic seeds.
+Card equity freezes contributions after check/call; it is distinct from strategy EV.
+
+Sensitivity uses 24 sampled Bayesian response policies and at most 32 prior hands
+to bound repeated calculation cost. Reduced-range EV changes are anchored to the
+full-range point estimates. The display reports that approximation's size and
+mean-policy shift; the shift is not an error bound. Agreement is a fraction of
+sampled policies, not confidence that a recommendation is correct. Bands exclude
+range-prior and behavioral-model misspecification. Broad ranges can take several
+seconds to calculate; the UI stays available and rejects results from stale turns.
+[Turn model and validation](docs/TURN.md) explains the calculations and limits.
+
+```powershell
+.\.venv\Scripts\python.exe scripts/turn_smoke.py
+.\.venv\Scripts\python.exe scripts/benchmark_turn.py --draws 24 --hands 32 --reference-hands 64 --seed 31
+```
+
+The same `dist\Pokato.exe` supports `--self-test-turn <absolute-report-path>`.
+It also retains the earlier self-test modes and hand-review features.
 
 ## Verify
 
@@ -197,6 +230,7 @@ The packaged `dist\Pokato.exe` also supports
 .\.venv\Scripts\python.exe scripts/readability_smoke.py
 .\.venv\Scripts\python.exe scripts/replay_smoke.py
 .\.venv\Scripts\python.exe scripts/river_smoke.py
+.\.venv\Scripts\python.exe scripts/turn_smoke.py
 ```
 
 Unit tests need no display. The smoke check opens and closes the local UI,
@@ -213,6 +247,8 @@ settings. A full-board fixture verifies that all essential widgets fit without
 clipping or scrolling, and the 4K overlay stays close to the 7% area target.
 The replay check verifies captured-hand browsing, saved range sensitivity,
 invalid-correction rejection, original immutability, reset and bot pause/restore.
+The turn check verifies actual-pixel capture, exact card probabilities, policy
+sensitivity, deterministic frozen replay and immediate advice/chart invalidation.
 Numerical tests independently enumerate five-card hands and distribute chips
 one at a time; random fixtures compare these references with production hand
 ranks and payouts. A turn-runout fixture checks sampled payouts against exact
