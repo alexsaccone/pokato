@@ -1,0 +1,98 @@
+from dataclasses import dataclass
+import random
+from pokato.core.cards import DECK, starting_strength, evaluate, CATEGORIES
+from .equity import equity, draw_hole, showdown_share
+
+
+@dataclass(frozen=True)
+class ActionValue:
+    label: str
+    ev: float
+    error: float = 0
+
+
+@dataclass(frozen=True)
+class Advice:
+    equity: object
+    threshold: float
+    actions: tuple
+    recommendation: str
+    assumptions: str
+    hand_name: str
+
+
+def raise_value(o, profiles, events, target, samples, seed):
+    """One-step fold/call scenario with strength-conditioned opponent responses.
+
+    No reraises or future bets. Everyone pays the same target; caller hands
+    remain conditioned on observed actions and response strength. Folded
+    cards stay removed from the runout. Unsupported all-in/side-pot cases
+    are excluded by analyze().
+    """
+    rng = random.Random(seed)
+    own = o.seats[0]
+    cost = target - own.bet
+    results = []
+    for _ in range(samples):
+        deck = [c for c in DECK if c not in o.hole + o.board]
+        callers = []
+        extra = 0
+        order = list(profiles)
+        rng.shuffle(order)
+        for profile in order:
+            hole = draw_hole(rng, deck, o.board, events, profile)
+            deck = [c for c in deck if c not in hole]
+            strength = starting_strength(hole)
+            if len(o.board) >= 3:
+                rank = evaluate(hole + list(o.board))
+                strength = min(0.98, 0.25 + rank[0] * 0.13 + rank[1] / 100)
+            payment = target - o.seats[profile.seat].bet
+            pressure = payment / max(1, o.pot + cost)
+            fold_chance = min(0.95, max(0.05, profile.fold_rate + 0.4 * pressure - 0.55 * (strength - 0.5)))
+            if rng.random() >= fold_chance:
+                callers.append(hole)
+                extra += payment
+        if not callers:
+            results.append(float(o.pot))
+        else:
+            runout = list(o.board) + rng.sample(deck, 5 - len(o.board))
+            share = showdown_share(o.hole, runout, callers)
+            results.append(share * (o.pot + cost + extra) - cost)
+    mean = sum(results) / samples
+    se = (sum((x - mean) ** 2 for x in results) / (samples - 1) / samples) ** 0.5
+    return ActionValue(f"Raise to {target}", mean, se)
+
+
+def analyze(o, profiles, events=(), samples=600):
+    if o.actor != 0 or o.street == "X" or o.seats[0].status != "A":
+        return None
+    opponents = [profiles[i] for i, s in enumerate(o.seats) if i != 0 and s.status != "F"]
+    estimate = equity(o.hole, o.board, opponents, events, samples, seed=o.hand * 101 + len(events))
+    threshold = o.call / (o.pot + o.call) if o.call else 0
+    name = CATEGORIES[evaluate(list(o.hole + o.board))[0]] if len(o.board) >= 3 else "Preflop"
+    # Side pots and unmatched historical all-in contributions need per-pot EV.
+    # Display equity, but refuse a misleading action ranking for these states.
+    all_in = any(s.status == "I" for s in o.seats)
+    own = o.seats[0]
+    max_bet = max(s.bet for s in o.seats)
+    if all_in or own.stack < max_bet - own.bet:
+        return Advice(estimate, threshold, (), "EV unavailable: all-in / side-pot state",
+                      "Equity is showdown share against all live ranges; it is not per-pot equity.", name)
+    action = "Call" if o.call else "Check"
+    terminal = o.street == "R" and len(opponents) == 1 and all(
+        s.status == "F" or s.bet == max_bet for i, s in enumerate(o.seats) if i != 0)
+    base = ActionValue(action, estimate.share * (o.pot + o.call) - o.call,
+                       estimate.standard_error * (o.pot + o.call))
+    actions = ([ActionValue("Fold", 0)] if o.call else []) + [base]
+    target = max(o.minimum, own.bet + o.call + max(10, o.pot // 2))
+    if o.minimum and target <= o.maximum and all(
+            s.status == "F" or i == 0 or s.stack + s.bet >= target for i, s in enumerate(o.seats)):
+        actions.append(raise_value(o, opponents, events, target, samples, o.hand * 301 + len(events)))
+    actions.sort(key=lambda a: a.ev, reverse=True)
+    best = actions[0]
+    close = len(actions) > 1 and best.ev - actions[1].ev <= 1.96 * (best.error ** 2 + actions[1].error ** 2) ** 0.5
+    recommendation = f"{best.label} · best modeled EV" + (" · sampling tie" if close else "")
+    assumption = ("Call/fold: terminal HU river calculation against a heuristic range. " if terminal and o.call
+                  else "Check/call: assumes immediate showdown with no further bets. ")
+    assumption += "Raises: heuristic fold/call responses, no reraises or future bets. No rake. Model uncertainty is not in ± intervals."
+    return Advice(estimate, threshold, tuple(actions), recommendation, assumption, name)
