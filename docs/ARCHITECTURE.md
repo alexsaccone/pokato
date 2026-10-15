@@ -47,8 +47,10 @@ Template confidence is not a calibrated probability of whole-hand correctness.
 
 Pillow `ImageGrab.grab(window=...)` captures the local practice widget on Windows.
 The table image scales with its viewport, preserving the optical aspect ratio.
-Nearest-neighbor enlargement allows captured pixels to normalize to the original
-reference without changing glyphs. The window has a readable minimum size.
+Nearest-neighbor enlargement normalizes to the optical reference. At compact
+scales (50–100%), glyph templates use the identical resampling map and field-
+specific character sets; ambiguous matches are rejected. Numeric/card text is
+still extracted from captured pixels. Controls wrap to preserve screen space.
 Minimization, invalid pixels, distortion or inconsistent state invalidates advice.
 Capture runs approximately every 200 ms; opponents act every 1.4 seconds.
 Tk runs on the main thread; numerical work runs on one worker thread. A
@@ -60,6 +62,14 @@ maximize/restore controls. The HUD is 94% opaque by default, adjustable to 88%
 or 100%; its content reflows into two columns when widened. Native Windows calls
 are scoped to the app's own windows for minimize, taskbar presence, and monitor
 work-area bounds. There is no standard title bar or native scrollbar.
+
+`ui/sizing.py` separates UI typography from optical calibration. Named pixel
+fonts use Windows per-monitor DPI, with a 200% floor for dense 4K panels and
+minimum 14-logical-pixel captions. Manual text zoom is relative to automatic
+display scaling and saved under the user profile. The HUD detects monitor DPI
+changes, reflows with a scaled breakpoint, and clamps default/minimum sizes to
+the work area. Content remains scrollable at larger text sizes. Screen-size
+checks cover 768p, 1080p, and 4K; they simulate work areas without changing OS DPI.
 
 ## Opponent modeling
 

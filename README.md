@@ -51,17 +51,34 @@ or exits the table. **Show coach** reopens a hidden or minimized HUD.
 
 The coach starts at 94% opacity. Click **Glass 94%** in its footer to cycle
 between 88%, 100%, and 94%. Scroll anywhere in the HUD for more detail. Widening
-it beyond 740 pixels moves opponent evidence beside the decision panel.
+it beyond the display-scaled layout breakpoint moves opponent evidence beside
+the decision panel.
+
+### Readable text on laptops and high-DPI monitors
+
+The HUD follows Windows per-monitor display scaling. Dense 4K displays use at
+least 200% sizing even when Windows is set to 100%; a 4K laptop at 250% gets
+40-pixel body text by default. Ordinary 100% displays start with 16-pixel body
+text and 14-pixel captions. Window defaults fit the current monitor's usable
+area, including smaller laptop screens; content scrolls rather than shrinking
+the text to fit.
+
+Use **A− / A+** at the top of the coach to adjust text from 80% to 200% of the
+automatic size. **Reset** restores the display-aware default. Keyboard shortcuts
+are **Ctrl + / Ctrl − / Ctrl 0**, and **Ctrl + mouse wheel** also adjusts text.
+The setting is saved in `%USERPROFILE%\.pokato\settings.json` and remains relative
+to display DPI, so moving the HUD to another monitor updates its physical size.
 
 Blinds are 5/10 chips, stacks start at 1,000, and rake is zero. The button rotates
 and busted players automatically rebuy. Betting rules include short all-ins,
 reopening, uncalled refunds, split pots, and side pots.
 
-The optical reference is **980 × 800 physical pixels**. Enlarging or maximizing
-the table scales its image to fit while preserving its aspect ratio; the reader
-normalizes captured pixels to the reference. A minimum window size preserves
-legibility. Tk typography uses the same coordinate system on high-DPI Windows
-displays. Windows capture targets only the practice widget's HWND;
+The optical reference is **980 × 800 physical pixels**. The table scales to its
+viewport while preserving its aspect ratio; the reader calibrates compact
+glyphs at scales down to 50% and normalizes enlargement to the reference.
+Controls wrap on smaller screens. Screen text scaling is independent of optical
+recognition, and window defaults stay within the monitor's work area.
+Windows capture targets only the practice widget's HWND;
 covering it with another app does not turn that app into input. Minimizing the
 practice window withholds advice.
 
@@ -96,6 +113,7 @@ database while the app is closed to reset statistics.
 .\.venv\Scripts\python.exe scripts/validate.py
 .\.venv\Scripts\python.exe scripts/desktop_smoke.py
 .\.venv\Scripts\python.exe scripts/window_smoke.py
+.\.venv\Scripts\python.exe scripts/readability_smoke.py
 ```
 
 Unit tests need no display. The smoke check opens and closes the local UI,
@@ -105,6 +123,9 @@ advice invalidation after an action. It writes ignored QA images/JSON under
 for unit tests on Windows with Python 3.10, 3.12, and 3.14.
 The window smoke check exercises custom drag/resize gestures, maximize/restore,
 minimize, transparency controls, HUD reflow, and recognition after table resizing.
+The readability check opens real widgets with simulated 768p/1080p work areas
+at 100% and 150%, plus a 4K work area at 250%. It checks auto-fit, font sizes,
+saved zoom controls, scrolling and pixel recognition without changing OS settings.
 
 ## Build the executable
 

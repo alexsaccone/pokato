@@ -39,6 +39,13 @@ class NativeWindow:
     def minimized(self):
         return bool(self.api.IsIconic(self.handle)) if self.api else self.window.state() == "iconic"
 
+    def dpi(self):
+        if self.api and hasattr(self.api, "GetDpiForWindow"):
+            self.api.GetDpiForWindow.argtypes = [wintypes.HWND]
+            self.api.GetDpiForWindow.restype = wintypes.UINT
+            return self.api.GetDpiForWindow(self.handle) or 96
+        return round(self.window.winfo_fpixels("1i"))
+
     def work_area(self):
         if self.api:
             class MonitorInfo(ctypes.Structure):
@@ -54,7 +61,7 @@ class NativeWindow:
 
 
 class WindowChrome:
-    def __init__(self, window, title, subtitle, close, minimum=(360, 420), alpha=1.0):
+    def __init__(self, window, title, subtitle, close, minimum=(360, 420), alpha=1.0, scale=1.0):
         self.window, self.minimum = window, minimum
         self.native = NativeWindow(window)
         self.maximized = False
@@ -75,6 +82,7 @@ class WindowChrome:
         name.pack(side="left")
         caption = tk.Label(self.header, text=subtitle, bg=BG, fg=MUTED, font=("Segoe UI", 9))
         caption.pack(side="left", padx=10)
+        self.title_widgets = (mark, name, caption)
         self.close_button = self.control("×", close, "#b56e7a")
         self.max_button = self.control("□", self.toggle_maximize)
         self.min_button = self.control("−", self.minimize)
@@ -107,6 +115,20 @@ class WindowChrome:
             self.edges[direction] = edge
         window.bind("<Map>", self.on_map, add="+")
         window.after_idle(self.native.taskbar)
+        self.set_scale(scale)
+
+    def set_scale(self, scale):
+        from .sizing import font_pixels
+        self.scale = scale
+        self.header.configure(height=round(49 * scale))
+        self.footer.configure(height=round(27 * scale))
+        for widget, size, bold in zip(self.title_widgets, (18, 11, 9), (False, True, False)):
+            widget.configure(font=("Segoe UI", -font_pixels(size, scale), "bold" if bold else "normal"))
+        for button in (self.close_button, self.max_button, self.min_button):
+            button.configure(font=("Segoe UI", -font_pixels(12, scale)))
+        self.hint.configure(font=("Segoe UI", -font_pixels(8, scale)))
+        self.grip.configure(font=("Segoe UI", -font_pixels(11, scale)))
+        self.hint.pack_configure(padx=round(12 * scale))
 
     def control(self, text, command, hover="#303b48"):
         button = tk.Button(self.header, text=text, command=command, bg=BG, fg=MUTED,

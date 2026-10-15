@@ -8,6 +8,7 @@ import tkinter as tk
 from .app import App
 from .vision.capture import capture_widget, enable_dpi_awareness
 from .vision.reader import ReadError
+from .ui.sizing import geometry, font_pixels
 
 
 def packaged_smoke(report_path):
@@ -44,7 +45,8 @@ def packaged_smoke(report_path):
             if time.monotonic() - started > 40:
                 raise TimeoutError("Expanded window capture did not settle")
             check_frame()
-            if not app.chrome.maximized or app.detail_column.grid_info()["column"] != 1:
+            expected_column = int(app.hud_canvas.winfo_width() >= app.hp(740))
+            if not app.chrome.maximized or app.detail_column.grid_info()["column"] != expected_column:
                 raise AssertionError("Custom maximize or responsive HUD failed")
             report["checks"].append("maximized table recognition and responsive HUD")
             app.chrome.toggle_maximize()
@@ -72,10 +74,14 @@ def packaged_smoke(report_path):
                 raise AssertionError("Native frame unexpectedly present")
             if not 0.85 < app.hud.attributes("-alpha") < 1:
                 raise AssertionError("HUD transparency is missing")
+            body_pixels = abs(app.hud_fonts.get(10).cget("size"))
+            if body_pixels < font_pixels(10, app.hud_scale):
+                raise AssertionError("HUD text did not scale to the display")
             report.update(hand=observed.hand, equity=app.advice.equity.share)
+            report.update(display_dpi=app.display.dpi, hud_scale=app.hud_scale, body_font_pixels=body_pixels)
             report["checks"].extend(("window capture and reconstructed history", "equity and action EV",
-                                      "frameless windows and translucent HUD"))
-            app.hud.geometry("860x940+30+30")
+                                      "frameless windows and translucent HUD", "display-aware readable HUD fonts"))
+            app.hud.geometry(geometry(app.hud_display.fit(860 * app.hud_scale, 940 * app.hud_scale)))
             app.chrome.toggle_maximize()
             root.after(700, expanded)
         except Exception:

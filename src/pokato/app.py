@@ -16,16 +16,24 @@ from pokato.vision.tracker import Tracker
 from pokato.analysis.history import History
 from pokato.analysis.coach import analyze
 from pokato.ui.window import WindowChrome, BG, TEXT, MUTED, ACCENT
+from pokato.ui.sizing import Display, HudFonts, Preferences, font_pixels, geometry
 
 PANEL = "#1a212c"
 
 
 class App:
-    def __init__(self, root, seed=7, samples=400, database=None):
+    def __init__(self, root, seed=7, samples=400, database=None, *, display=None, settings_path=None):
         self.root, self.samples = root, samples
         # The V1 optical layout uses physical pixels. Keep Tk typography in
         # that same coordinate system even on 200%/250% Windows displays.
         root.tk.call("tk", "scaling", 96 / 72)
+        self.display = display or Display.detect(root)
+        self.watch_monitor = display is None
+        self.preferences = Preferences(False if database == ":memory:" and settings_path is None else settings_path)
+        self.hud_zoom = self.preferences.zoom
+        self.hud_display = self.display
+        self.hud_scale = self.display.scale * self.hud_zoom
+        self.monitor_job = None
         self.game = Game(seed)
         self.reader, self.tracker = Reader(), Tracker()
         self.history = History(database or Path.home() / ".pokato" / "practice.sqlite3")
@@ -41,31 +49,47 @@ class App:
         self.last_seen = 0
         self.last_error = None
         root.title("Pokato · local Hold'em practice")
-        root.geometry("1040x970+24+24")
+        table_rect = self.display.table_rect()
+        root.geometry(geometry(table_rect))
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.bind("<Alt-F4>", lambda e: self.close())
         self.chrome = WindowChrome(root, "pokato", "PRACTICE TABLE", self.close,
-                                   minimum=(WIDTH + 24, HEIGHT + 140))
-        self.viewport = tk.Frame(self.chrome.body, bg=BG)
+                                   minimum=(min(WIDTH + 24, table_rect[0]), min(HEIGHT + 140, table_rect[1])),
+                                   scale=self.display.scale)
+        self.viewport = tk.Canvas(self.chrome.body, bg=BG, highlightthickness=0)
         self.viewport.pack(fill="both", expand=True, padx=10, pady=(8, 0))
         self.table = tk.Label(self.viewport, borderwidth=0, highlightthickness=0, bg=BG)
-        self.table.place(relx=0.5, rely=0.5, anchor="center", width=WIDTH, height=HEIGHT)
+        self.table_window = self.viewport.create_window(0, 0, window=self.table, anchor="nw", width=WIDTH, height=HEIGHT)
         self.viewport.bind("<Configure>", self.resize_table)
+        self.viewport.bind("<MouseWheel>", lambda e: self.viewport.yview_scroll(-int(e.delta / 120) * 3, "units"))
+        self.viewport.bind("<Shift-MouseWheel>", lambda e: self.viewport.xview_scroll(-int(e.delta / 120) * 3, "units"))
+        self.table.bind("<MouseWheel>", lambda e: self.viewport.yview_scroll(-int(e.delta / 120) * 3, "units"))
+        self.table.bind("<Shift-MouseWheel>", lambda e: self.viewport.xview_scroll(-int(e.delta / 120) * 3, "units"))
+        self.table.bind("<ButtonPress-2>", lambda e: self.viewport.scan_mark(e.x_root - self.viewport.winfo_rootx(), e.y_root - self.viewport.winfo_rooty()))
+        self.table.bind("<B2-Motion>", lambda e: self.viewport.scan_dragto(e.x_root - self.viewport.winfo_rootx(), e.y_root - self.viewport.winfo_rooty(), gain=1))
         self.table_frame = None
         self.table_size = None
-        controls = tk.Frame(self.chrome.body, bg=BG, padx=12, pady=10)
+        controls = tk.Frame(self.chrome.body, bg=BG, padx=12, pady=2 if self.display.height < 900 else 10)
         controls.pack(fill="x")
+        self.controls = controls
         self.fold = self.button(controls, "Fold", lambda: self.hero_action("F"))
         self.call = self.button(controls, "Check", self.call_action)
-        tk.Label(controls, text="Raise to", bg=BG, fg=MUTED, font=("Segoe UI", 9)).pack(side="left", padx=(8, 4))
+        raise_controls = tk.Frame(controls, bg=BG)
+        raise_controls.pack(side="left")
+        tk.Label(raise_controls, text="Raise to", bg=BG, fg=MUTED,
+                 font=("Segoe UI", -font_pixels(9, self.display.scale))).pack(side="left", padx=(8, 4))
         self.raise_to = tk.StringVar(value="30")
-        self.raise_entry = tk.Entry(controls, textvariable=self.raise_to, width=7, bg=PANEL, fg=TEXT,
-                                   insertbackground=TEXT, relief="flat", font=("Segoe UI", 11))
+        self.raise_entry = tk.Entry(raise_controls, textvariable=self.raise_to, width=7, bg=PANEL, fg=TEXT,
+                                   insertbackground=TEXT, relief="flat", font=("Segoe UI", -font_pixels(11, self.display.scale)))
         self.raise_entry.pack(side="left", padx=4)
-        self.raise_button = self.button(controls, "Raise", lambda: self.hero_action("R"))
+        self.raise_button = self.button(raise_controls, "Raise", lambda: self.hero_action("R"))
         self.next_button = self.button(controls, "Deal next hand", self.new_hand)
         self.pause_button = self.button(controls, "Pause bots", self.toggle_pause)
         self.button(controls, "Show coach", self.open_hud)
+        self.control_items = list(controls.winfo_children())
+        for widget in self.control_items:
+            widget.pack_forget()
+        controls.bind("<Configure>", self.layout_controls)
         self.message = tk.StringVar(value="LOCAL PRACTICE · 5/10 CHIPS · NO RAKE")
         self.chrome.hint.configure(textvariable=self.message)
         self.build_hud()
@@ -73,49 +97,79 @@ class App:
         root.after(350, self.observe)
         root.after(1400, self.bot_tick)
 
-    @staticmethod
-    def button(parent, text, command):
+    def button(self, parent, text, command):
         button = tk.Button(parent, text=text, command=command, bg=PANEL, fg=TEXT,
                            activebackground="#303b48", activeforeground=TEXT, relief="flat", bd=0,
-                           cursor="hand2", font=("Segoe UI", 10), padx=12, pady=8)
+                           cursor="hand2", font=("Segoe UI", -font_pixels(10, self.display.scale)),
+                           padx=12, pady=2 if self.display.height < 900 else 8)
         button.pack(side="left", padx=4)
         return button
 
+    def layout_controls(self, event=None):
+        available = max(1, self.controls.winfo_width() - 24)
+        row = column = used = 0
+        for widget in self.control_items:
+            width = widget.winfo_reqwidth() + 8
+            if used and used + width > available:
+                row, column, used = row + 1, 0, 0
+            widget.grid(row=row, column=column, padx=4, pady=3, sticky="w")
+            column, used = column + 1, used + width
+
     def label(self, parent, text="", size=10, color=TEXT, bold=False):
         label = tk.Label(parent, text=text, bg=parent.cget("bg"), fg=color, justify="left", anchor="w",
-                         font=("Segoe UI", size, "bold" if bold else "normal"), wraplength=330)
-        label.pack(fill="x", pady=3)
+                         font=self.hud_fonts.get(size, bold), wraplength=round(330 * self.hud_scale))
+        label.pack(fill="x", pady=self.hp(3))
         label.bind("<Configure>", lambda e: label.configure(wraplength=max(120, e.width - 3)))
         return label
 
     def panel(self, parent, title):
-        panel = tk.Frame(parent, bg=PANEL, padx=16, pady=11, highlightthickness=1, highlightbackground="#29323e")
-        panel.pack(fill="x", pady=(0, 10))
+        panel = tk.Frame(parent, bg=PANEL, padx=self.hp(16), pady=self.hp(11), highlightthickness=1, highlightbackground="#29323e")
+        panel._hud_panel = True
+        panel.pack(fill="x", pady=(0, self.hp(10)))
         self.label(panel, title, 8, MUTED, True)
         return panel
 
     def build_hud(self):
         self.hud = tk.Toplevel(self.root)
+        self.hud_fonts = HudFonts(self.hud, self.hud_scale)
         self.hud.title("Pokato · practice coach")
-        self.hud.geometry(f"440x880+{min(1080, self.root.winfo_screenwidth() - 460)}+24")
+        self.hud.geometry(geometry(self.hud_display.hud_rect(self.hud_zoom,
+                                     beside=self.display.table_rect()[2] + self.display.table_rect()[0] + self.display.margin)))
         self.hud.attributes("-topmost", True)
         self.hud.protocol("WM_DELETE_WINDOW", self.hud.withdraw)
         self.hud_chrome = WindowChrome(self.hud, "pokato", "COACH", self.hud.withdraw,
-                                      minimum=(360, 440), alpha=0.94)
-        self.hud_chrome.hint.configure(text="Scroll for detail · drag edges")
+                                      minimum=self.hud_minimum(), alpha=0.94, scale=self.hud_scale)
+        self.hud_chrome.hint.configure(text="Scroll for detail")
         self.opacity_button = tk.Button(self.hud_chrome.footer, text="Glass 94%", command=self.cycle_opacity,
                                         bg=BG, fg=MUTED, activebackground=PANEL, activeforeground=TEXT,
-                                        relief="flat", bd=0, font=("Segoe UI", 8), cursor="hand2")
+                                        relief="flat", bd=0, font=self.hud_fonts.get(8), cursor="hand2")
         self.opacity_button.pack(side="right", padx=8)
         self.hud.bind("<Escape>", lambda e: self.hud.withdraw())
+        toolbar = tk.Frame(self.hud_chrome.body, bg=BG, padx=self.hp(16), pady=self.hp(8))
+        toolbar.pack(fill="x")
+        self.zoom_toolbar = toolbar
+        tk.Label(toolbar, text="Text", bg=BG, fg=MUTED, font=self.hud_fonts.get(9)).pack(side="left", padx=(0, self.hp(12)))
+        self.zoom_out = self.zoom_button(toolbar, "A−", lambda: self.set_hud_zoom(self.hud_zoom - 0.1))
+        self.zoom_label = tk.Label(toolbar, text=f"{self.hud_zoom:.0%}", bg=BG, fg=TEXT, font=self.hud_fonts.get(9))
+        self.zoom_label.pack(side="left", padx=self.hp(8))
+        self.zoom_in = self.zoom_button(toolbar, "A+", lambda: self.set_hud_zoom(self.hud_zoom + 0.1))
+        self.zoom_reset = self.zoom_button(toolbar, "Reset", lambda: self.set_hud_zoom(1.0))
+        for sequence in ("<Control-plus>", "<Control-equal>", "<Control-KP_Add>"):
+            self.hud.bind(sequence, lambda e: self.set_hud_zoom(self.hud_zoom + 0.1))
+        for sequence in ("<Control-minus>", "<Control-KP_Subtract>"):
+            self.hud.bind(sequence, lambda e: self.set_hud_zoom(self.hud_zoom - 0.1))
+        self.hud.bind("<Control-0>", lambda e: self.set_hud_zoom(1.0))
         canvas = tk.Canvas(self.hud_chrome.body, bg=BG, highlightthickness=0)
         self.hud_canvas = canvas
         canvas.pack(side="left", fill="both", expand=True)
-        self.hud_body = tk.Frame(canvas, bg=BG, padx=16, pady=12)
+        self.hud_body = tk.Frame(canvas, bg=BG, padx=self.hp(16), pady=self.hp(12))
         body_id = canvas.create_window((0, 0), window=self.hud_body, anchor="nw")
+        self.hud_body_id = body_id
         self.hud_body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
         canvas.bind("<Configure>", lambda e: self.layout_hud(e.width, body_id))
         self.hud.bind("<MouseWheel>", lambda e: canvas.yview_scroll(-int(e.delta / 120), "units"))
+        self.hud.bind("<Control-MouseWheel>", self.zoom_wheel)
+        self.hud.bind("<Configure>", self.schedule_monitor_refresh, add="+")
         self.capture_status = self.label(self.hud_body, "● Connecting to practice table", 9, ACCENT)
         summary = self.panel(self.hud_body, "CURRENT HAND")
         self.state_label = self.label(summary, "", 10, MUTED)
@@ -131,13 +185,13 @@ class App:
         numbers.pack(fill="x", pady=(4, 7))
         for column in (0, 1):
             numbers.columnconfigure(column, weight=1)
-        self.equity_number = tk.Label(numbers, text="—", bg=PANEL, fg=ACCENT, font=("Segoe UI", 26, "bold"), anchor="w")
+        self.equity_number = tk.Label(numbers, text="—", bg=PANEL, fg=ACCENT, font=self.hud_fonts.get(26, True), anchor="w")
         self.equity_number.grid(row=0, column=0, sticky="w")
-        self.price_number = tk.Label(numbers, text="—", bg=PANEL, fg=TEXT, font=("Segoe UI", 26, "bold"), anchor="w")
+        self.price_number = tk.Label(numbers, text="—", bg=PANEL, fg=TEXT, font=self.hud_fonts.get(26, True), anchor="w")
         self.price_number.grid(row=0, column=1, sticky="w")
         for col, text in enumerate(("RANGE EQUITY", "BREAK-EVEN")):
-            tk.Label(numbers, text=text, bg=PANEL, fg=MUTED, font=("Segoe UI", 8)).grid(row=1, column=col, sticky="w")
-        self.chart = tk.Canvas(odds, width=300, height=47, bg=PANEL, highlightthickness=0)
+            tk.Label(numbers, text=text, bg=PANEL, fg=MUTED, font=self.hud_fonts.get(8)).grid(row=1, column=col, sticky="w")
+        self.chart = tk.Canvas(odds, width=300, height=self.hp(47), bg=PANEL, highlightthickness=0)
         self.chart.pack(fill="x", pady=6)
         self.chart.bind("<Configure>", lambda e: self.draw_chart())
         self.metrics = self.label(odds, "Waiting for your turn", 9, MUTED)
@@ -151,6 +205,70 @@ class App:
         self.events_label = self.label(recent, "", 10, MUTED)
         self.label(self.hud_body, "Local practice · estimates depend on assumed ranges and response models.", 8, MUTED)
         self.root.bind("h", lambda e: self.open_hud())
+
+    def hp(self, pixels):
+        return max(1, round(pixels * self.hud_scale))
+
+    def hud_minimum(self):
+        width, height, _, _ = self.hud_display.fit(360 * self.hud_scale, 440 * self.hud_scale)
+        return width, height
+
+    def zoom_button(self, parent, text, command):
+        button = tk.Button(parent, text=text, command=command, bg=PANEL, fg=TEXT, bd=0,
+                           activebackground="#303b48", activeforeground=TEXT, cursor="hand2",
+                           font=self.hud_fonts.get(9), padx=self.hp(8), pady=self.hp(3))
+        button.pack(side="left", padx=self.hp(3))
+        return button
+
+    def zoom_wheel(self, event):
+        self.set_hud_zoom(self.hud_zoom + (0.1 if event.delta > 0 else -0.1))
+        return "break"
+
+    def set_hud_zoom(self, zoom):
+        self.preferences.save(zoom)
+        self.hud_zoom = self.preferences.zoom
+        self.refresh_hud_scale()
+
+    def refresh_hud_scale(self):
+        self.hud_scale = self.hud_display.scale * self.hud_zoom
+        self.hud_fonts.set_scale(self.hud_scale)
+        self.hud_chrome.set_scale(self.hud_scale)
+        self.hud_chrome.minimum = self.hud_minimum()
+        self.hud.minsize(*self.hud_chrome.minimum)
+        self.zoom_label.configure(text=f"{self.hud_zoom:.0%}")
+        self.hud_body.configure(padx=self.hp(16), pady=self.hp(12))
+        self.zoom_toolbar.configure(padx=self.hp(16), pady=self.hp(8))
+        self.chart.configure(height=self.hp(47))
+        def restyle(parent):
+            for widget in parent.winfo_children():
+                if getattr(widget, "_hud_panel", False):
+                    widget.configure(padx=self.hp(16), pady=self.hp(11))
+                    widget.pack_configure(pady=(0, self.hp(10)))
+                elif isinstance(widget, tk.Label) and widget.winfo_manager() == "pack":
+                    widget.pack_configure(pady=self.hp(3))
+                restyle(widget)
+        restyle(self.hud_body)
+        if not self.hud_chrome.maximized:
+            minimum_width, minimum_height = self.hud_minimum()
+            self.hud.geometry(geometry(self.hud_display.fit(max(self.hud.winfo_width(), minimum_width),
+                                          max(self.hud.winfo_height(), minimum_height), self.hud.winfo_x(), self.hud.winfo_y())))
+        self.layout_hud(self.hud_canvas.winfo_width(), self.hud_body_id)
+        self.draw_chart()
+
+    def schedule_monitor_refresh(self, event):
+        if event.widget != self.hud or not self.watch_monitor:
+            return
+        if self.monitor_job:
+            self.root.after_cancel(self.monitor_job)
+        self.monitor_job = self.root.after(250, self.refresh_monitor)
+
+    def refresh_monitor(self):
+        self.monitor_job = None
+        display = Display.detect(self.hud)
+        changed = display.scale != self.hud_display.scale
+        self.hud_display = display
+        if changed:
+            self.refresh_hud_scale()
 
     def open_hud(self):
         if hasattr(self, "hud_chrome"):
@@ -166,24 +284,27 @@ class App:
 
     def layout_hud(self, width, body_id):
         self.hud_canvas.itemconfigure(body_id, width=width)
-        wide = width >= 740
+        wide = width >= self.hp(740)
         self.columns.columnconfigure(0, weight=3, uniform="hud")
         self.columns.columnconfigure(1, weight=2 if wide else 0, uniform="hud" if wide else "")
-        self.analysis_column.grid(row=0, column=0, sticky="nsew", padx=(0, 10 if wide else 0))
+        self.analysis_column.grid(row=0, column=0, sticky="nsew", padx=(0, self.hp(10) if wide else 0))
         self.detail_column.grid(row=0 if wide else 1, column=1 if wide else 0, sticky="nsew")
 
     def resize_table(self, event=None):
         if self.table_frame is None:
             return
-        scale = max(1.0, min(self.viewport.winfo_width() / WIDTH, self.viewport.winfo_height() / HEIGHT))
+        scale = max(0.5, min(self.viewport.winfo_width() / WIDTH, self.viewport.winfo_height() / HEIGHT))
         size = (round(WIDTH * scale), round(HEIGHT * scale))
+        view_w, view_h = self.viewport.winfo_width(), self.viewport.winfo_height()
+        self.viewport.configure(scrollregion=(0, 0, max(view_w, size[0]), max(view_h, size[1])))
+        self.viewport.coords(self.table_window, max(0, (view_w - size[0]) // 2), max(0, (view_h - size[1]) // 2))
+        self.viewport.itemconfigure(self.table_window, width=size[0], height=size[1])
         if size == self.table_size and event is not None:
             return
         self.table_size = size
         frame = self.table_frame if size == (WIDTH, HEIGHT) else self.table_frame.resize(size, Image.Resampling.NEAREST)
         self.photo = ImageTk.PhotoImage(frame)
         self.table.configure(image=self.photo)
-        self.table.place_configure(width=size[0], height=size[1])
 
     def draw(self):
         self.table_frame = render(self.game)
@@ -319,15 +440,17 @@ class App:
         if self.advice is None:
             return
         right = max(120, self.chart.winfo_width() - 4)
-        for y, value, color in ((12, self.advice.equity.share, ACCENT), (35, self.advice.threshold, "#8b9db6")):
-            self.chart.create_rectangle(0, y - 4, right, y + 4, fill="#293342", outline="")
-            if self.advice.actions or y == 12:
-                self.chart.create_rectangle(0, y - 4, right * value, y + 4, fill=color, outline="")
+        for y, value, color in ((self.hp(12), self.advice.equity.share, ACCENT), (self.hp(35), self.advice.threshold, "#8b9db6")):
+            self.chart.create_rectangle(0, y - self.hp(4), right, y + self.hp(4), fill="#293342", outline="")
+            if self.advice.actions or y == self.hp(12):
+                self.chart.create_rectangle(0, y - self.hp(4), right * value, y + self.hp(4), fill=color, outline="")
 
     def close(self):
         if self.closed:
             return
         self.closed = True
+        for job in self.root.tk.call("after", "info"):
+            self.root.after_cancel(job)
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.history.close()
         self.root.destroy()
