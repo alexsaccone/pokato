@@ -109,6 +109,8 @@ def build_coach(a):
     a.chart = tk.Canvas(calculations, height=a.hp(47), bg=PANEL, highlightthickness=0)
     a.chart.pack(fill="x")
     a.chart.bind("<Configure>", lambda e: a.draw_chart())
+    a.runout_chart = tk.Canvas(calculations, height=a.hp(170), bg=PANEL, highlightthickness=0)
+    a.runout_chart.bind("<Configure>", lambda e: draw_runouts(a))
     a.action_label = a.label(calculations, "", 10)
     a.assumptions = a.label(calculations, "", 9, MUTED)
     evidence = a.panel(a.detail_column, "OPPONENT EVIDENCE")
@@ -142,6 +144,7 @@ def refresh_coach(a):
     a.essentials.configure(padx=a.hp(8), pady=a.hp(4))
     a.hud_body.configure(padx=a.hp(8), pady=a.hp(8))
     a.chart.configure(height=a.hp(47))
+    a.runout_chart.configure(height=a.hp(170))
     a.hud.minsize(*a.hud_minimum())
     if not a.details_open and not a.hud_chrome.maximized:
         width, height, _, _ = a.hud_display.hud_rect()
@@ -150,3 +153,28 @@ def refresh_coach(a):
     a.fit_essentials()
     a.layout_hud(max(200, a.hud_canvas.winfo_width()), a.hud_body_id)
     a.draw_chart()
+    draw_runouts(a)
+
+
+def draw_runouts(a):
+    """Show extreme river-card equities; probabilities are range conditioned."""
+    canvas = a.runout_chart
+    canvas.delete("all")
+    if not a.advice or not a.advice.runouts:
+        canvas.pack_forget()
+        return
+    canvas.pack(fill="x", after=a.action_label)
+    rows = sorted(a.advice.runouts, key=lambda r: (r.share, r.card))
+    picks = rows[-3:][::-1] + rows[:3]
+    width = max(a.hp(230), canvas.winfo_width())
+    canvas.create_text(a.hp(2), a.hp(10), text="RIVER CARD → SHOWDOWN EQUITY", anchor="w",
+                       fill=MUTED, font=a.hud_fonts.get(8))
+    for i, row in enumerate(picks):
+        y = a.hp(33+i*24)
+        color = ACCENT if i < 3 else "#e8b18d"
+        canvas.create_text(a.hp(2), y, text=row.card, anchor="w", fill=TEXT, font=a.hud_fonts.get(9, True))
+        left, right = a.hp(31), width-a.hp(111)
+        canvas.create_rectangle(left, y-a.hp(4), right, y+a.hp(4), fill="#293342", outline="")
+        canvas.create_rectangle(left, y-a.hp(4), left+max(0, right-left)*row.share, y+a.hp(4), fill=color, outline="")
+        canvas.create_text(width-a.hp(2), y, text=f"{row.share:.0%} · P {row.probability:.1%}",
+                           anchor="e", fill=color, font=a.hud_fonts.get(8))

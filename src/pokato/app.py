@@ -281,6 +281,8 @@ class App:
             action.configure(text="—")
             value.configure(text="—")
         self.chart.delete("all")
+        self.runout_chart.delete("all")
+        self.runout_chart.pack_forget()
 
     def new_hand(self):
         if self.game.actor >= 0:
@@ -373,11 +375,12 @@ class App:
         for i in range(1, 6):
             p = self.history.profile(i, self.session)
             model = self.history.session_model(self.session, i)
-            posterior = model.posterior("R", 50, 150)
+            posterior = model.posterior(o.street if o.street != "X" else "R", 50, 150)
+            context_street = {"P": "Preflop", "F": "Flop", "T": "Turn", "R": "River", "X": "River"}[o.street]
             status = "baseline" if not model.opportunities else f"adapting · {model.opportunities} observed decisions"
             rows.append(f"{NAMES[i]} · {status}\n"
                         f"  Session VPIP {p.vpip_count}/{p.hands} · PFR {p.pfr_count}/{p.hands}\n"
-                        f"  River/medium: {posterior.local} direct opportunities · {posterior.data_weight:.0%} data weight")
+                        f"  {context_street}/medium: {posterior.local} direct opportunities · {posterior.data_weight:.0%} data weight")
         self.profile_label.configure(text="\n".join(rows))
         descriptions = {"B": "blind", "F": "fold", "K": "check", "C": "call", "R": "raise"}
         self.events_label.configure(text="\n".join(f"{NAMES[e.seat]} · {e.street} · {descriptions[e.action]}"
@@ -389,7 +392,7 @@ class App:
             return
         self.advice = advice
         eq = advice.equity
-        method = f"Exact enumeration · {eq.samples} combinations" if eq.exact else f"Monte Carlo · {eq.samples} samples"
+        method = f"Exact enumeration · {eq.samples} deals" if eq.exact else f"Monte Carlo · {eq.samples} samples"
         interval = "" if eq.exact else f" ± {1.96 * eq.standard_error:.1%} sampling"
         self.equity_number.configure(text=f"{eq.share:.0%}")
         self.price_number.configure(text=f"{advice.threshold:.0%}" if advice.actions and advice.pot_odds_valid else "—")
@@ -397,8 +400,15 @@ class App:
         self.draw_chart()
         self.recommendation.configure(text=advice.recommendation.split(" · ")[0].replace("EV unavailable: all-in / side-pot state", "EV unavailable"))
         self.best_ev_label.configure(text=f"EV {advice.actions[0].ev:+.1f}" if advice.actions else "")
-        self.model_label.configure(text=f"River tree · {len(advice.actions)} actions · Details" if advice.engine == "river-tree"
-                                   else "Model estimate · close EVs" if "sampling tie" in advice.recommendation else "Model estimate")
+        model_text = f"River tree · {len(advice.actions)} actions · Details" if advice.engine == "river-tree" else "Model estimate"
+        if advice.engine == "turn-tree":
+            model_text = "Turn tree · sensitivity unavailable"
+            if advice.uncertainty:
+                top = next(a for a in advice.uncertainty.actions if a.label == advice.actions[0].label)
+                model_text = f"Turn tree · {top.best_fraction:.0%} policy agreement"
+        elif "sampling tie" in advice.recommendation:
+            model_text = "Model estimate · close EVs"
+        self.model_label.configure(text=model_text)
         for index, (action_label, value_label) in enumerate(self.ev_cells):
             if index < len(advice.actions):
                 action = advice.actions[index]
@@ -410,14 +420,26 @@ class App:
         self.action_label.configure(text="\n".join(f"{a.label}: {a.ev:+.1f} chips" +
                                                    (f" ± {1.96 * a.error:.1f} sampling" if a.error else "")
                                                    for a in advice.actions))
+        if advice.uncertainty:
+            bands = {a.label: a for a in advice.uncertainty.actions}
+            self.action_label.configure(text="EV / APPROXIMATE 80% POLICY BAND\n" + "\n".join(
+                f"{a.label}: {a.ev:+.1f} [{bands[a.label].low:+.1f}, {bands[a.label].high:+.1f}] chips"
+                for a in advice.actions))
         pot_lines = "\n".join(f"{'Refund' if p.refund else 'Pot'} {i+1}: {p.amount} chips · your expected payout {p.hero_award:.1f}"
                               for i, p in enumerate(advice.pots))
         evidence = "\n".join(advice.evidence)
         branches = "\n".join(f"{b.action} → {b.response}: {b.probability:.1%}; then {b.continuation}; EV {b.ev:+.1f}"
                              for b in advice.branches)
+        sensitivity = ""
+        if advice.uncertainty:
+            sensitivity = "\nAPPROXIMATE 80% POLICY SENSITIVITY (not sampling error)\n" + "\n".join(
+                f"{a.label}: [{a.low:+.1f}, {a.high:+.1f}] chips · preferred in {a.best_fraction:.0%} of draws"
+                for a in advice.uncertainty.actions)
         self.assumptions.configure(text=advice.assumptions + ("\n" + pot_lines if pot_lines else "") +
                                   ("\nSESSION RESPONSE MODEL (90% posterior intervals)\n" + evidence if evidence else "") +
-                                  ("\nRESPONSE BRANCHES\n" + branches if branches else ""))
+                                  ("\nRESPONSE BRANCHES\n" + branches if branches else "") + sensitivity)
+        from pokato.ui.coach import draw_runouts
+        draw_runouts(self)
         self.hud.after_idle(self.fit_essentials)
 
     def draw_chart(self):

@@ -2,6 +2,9 @@
 from dataclasses import dataclass, replace
 import math
 from pokato.core.cards import DECK
+from pokato.core.pots import build_pots, payout
+from .equity import Equity
+from .pot_equity import PotEquity, PotResult
 from .river import RiverTree, State, UnsupportedRiver
 
 
@@ -10,6 +13,7 @@ class Runout:
     card: str
     probability: float
     share: float
+    tie: float = 0.
 
 
 @dataclass(frozen=True)
@@ -90,8 +94,12 @@ class TurnTree(RiverTree):
         for river in self.rivers.values():
             river_contexts.update(river.contexts)
         for context, posterior in sorted(river_contexts.items()):
+            intervals = []
+            for action, mean in zip(posterior.actions, posterior.mean):
+                low, high = posterior.interval(action)
+                intervals.append(f"{action} {mean:.0%} [{low:.0%}, {high:.0%}]")
             evidence.append(f"River/{context}: {posterior.local} direct, {posterior.other} borrowed opportunities; "
-                            f"data weight {posterior.data_weight:.0%}")
+                            f"data weight {posterior.data_weight:.0%}; " + ", ".join(intervals))
         runouts = []
         for card, probability, belief in self.chance(self.belief):
             if card not in self.rivers:
@@ -99,9 +107,27 @@ class TurnTree(RiverTree):
             outcomes = self.rivers[card].outcomes
             share = math.fsum(w * (1. if outcome == 0 else .5 if outcome == 1 else 0.)
                               for w, outcome in zip(belief, outcomes))
-            runouts.append(Runout(card, probability, share))
+            tie = math.fsum(w for w, outcome in zip(belief, outcomes) if outcome == 1)
+            runouts.append(Runout(card, probability, share, tie))
         branches = tuple(replace(b, continuation="river card → public-belief river play"
                                  if b.continuation == "terminal payout" and b.response != "Fold"
                                  else b.continuation) for b in base.branches)
         return TurnResult(base.values, branches, tuple(evidence), self.nodes + self.chance_nodes,
                           base.combinations, self.cap, tuple(runouts), self.river_cap)
+
+    def showdown_pots(self, result, contributions):
+        """Exact check/call-then-showdown equity, distinct from strategy EV."""
+        tie = math.fsum(r.probability*r.tie for r in result.runouts)
+        win = math.fsum(r.probability*(r.share-.5*r.tie) for r in result.runouts)
+        probabilities = (win, tie, max(0., 1-win-tie))
+        results = []
+        for pot in build_pots(contributions, self.folded_seats):
+            awards = [payout(pot, {0: (hero,), self.villain: (other,)}, self.o.button, 6).get(0, 0)
+                      for hero, other in ((1, 0), (1, 1), (0, 1))]
+            award = math.fsum(p*a for p, a in zip(probabilities, awards))
+            results.append(PotResult(pot.amount, pot.eligible, pot.refund, award, 0.))
+        award = math.fsum(p.hero_award for p in results)
+        refunds = math.fsum(p.hero_award for p in results if p.refund)
+        contestable = sum(p.amount for p in results if not p.refund and 0 in p.eligible)
+        equity = Equity((award-refunds)/contestable if contestable else 0., 0., len(self.holes)*44, True)
+        return PotEquity(equity, tuple(results), award, 0.)

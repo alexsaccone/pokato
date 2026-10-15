@@ -11,6 +11,8 @@ from pokato.ui.sizing import Display, Preferences, font_pixels
 from pokato.vision.capture import capture_widget, enable_dpi_awareness
 from pokato.analysis.coach import Advice, ActionValue
 from pokato.analysis.equity import Equity
+from pokato.analysis.turn import Runout
+from pokato.analysis.uncertainty import Sensitivity, ActionSensitivity
 
 
 def main():
@@ -44,12 +46,17 @@ def main():
                         assert o.hole == tuple(app.game.players[0].hole)
                         assert abs(app.hud_fonts.get(10).cget("size")) >= font_pixels(10, display.compact_scale)
                         assert not app.details_open and not app.hud_canvas.winfo_ismapped()
-                        # Fill the overlay with a full river and all three EVs,
-                        # rather than verifying only empty/waiting-state labels.
+                        # Stress the overlay with a full board, all three EVs,
+                        # long turn-policy labels and optional card graphics.
                         app.update_observed(replace(o, street="R", board=("As", "Kh", "Qd", "Jc", "Ts"), pot=12345, call=1000))
                         app.show_advice(Advice(Equity(0.42, 0.01, 600), 0.25,
                             (ActionValue("Raise to 1000", 12.3), ActionValue("Call", 10.1), ActionValue("Fold", 0)),
-                            "Raise to 1000 · best modeled EV", "UI fixture: details remain optional.", "Straight"))
+                            "Raise to 1000 · best modeled EV", "UI fixture: details remain optional.", "Straight",
+                            engine="turn-tree", uncertainty=Sensitivity((
+                                ActionSensitivity("Raise to 1000", 8, 15, .75), ActionSensitivity("Call", 6, 13, .25),
+                                ActionSensitivity("Fold", 0, 0, 0)), 24, 32, 1035, 31, 2.3),
+                            runouts=tuple(Runout(c, 1/46, p) for c, p in zip(
+                                ("2c", "3c", "4c", "5c", "6c", "7c"), (.2, .3, .4, .5, .6, .7)))))
                         stage.append(abs(app.hud_fonts.get(10).cget("size")))
                         stage[0] = 1
                     elif stage[0] == 1:

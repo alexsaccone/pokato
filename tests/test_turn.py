@@ -3,10 +3,11 @@ from dataclasses import replace
 import math
 import random
 import unittest
-from pokato.analysis.bayes import SessionModel
+from pokato.analysis.bayes import SessionModel, ResponseCount
 from pokato.analysis.history import Profile
 from pokato.analysis.ranges import parse_range
 from pokato.analysis.river import UnsupportedRiver
+from pokato.analysis.coach import analyze
 from pokato.analysis.turn import TurnTree
 from pokato.core.cards import DECK
 from pokato.core.game import Game, Event
@@ -87,6 +88,10 @@ class TurnTests(unittest.TestCase):
         self.assertAlmostEqual(dict(result.values)["Call"], wins*260-30)
         self.assertEqual(dict(result.values)["Fold"], 0)
         self.assertEqual(result.nodes, 0)
+        pots = tree.showdown_pots(result, [130, 150, 0, 0, 0, 0])
+        self.assertTrue(pots.equity.exact)
+        self.assertAlmostEqual(pots.award, wins*260)
+        self.assertEqual(pots.pots[-1].hero_award, 0)
 
     def test_chance_transitions_and_payouts_against_game(self):
         game = Game()
@@ -132,6 +137,35 @@ class TurnTests(unittest.TestCase):
             TurnTree(fixture(), Profile(1), ranges={1: parse_range("QQ")}, node_budget=1).run()
         with self.assertRaisesRegex(UnsupportedRiver, "disagree"):
             TurnTree(fixture(facing=50), Profile(1), (Event(1, 1, "T", "R", 40),))
+
+    def test_observed_turn_bet_refines_automatic_range_but_not_explicit_range(self):
+        o = fixture(facing=50)
+        events = (Event(1, 1, "T", "R", 50),)
+        aggressive = SessionModel(1, (ResponseCount("T", "open", "R", 100),))
+        passive = SessionModel(1, (ResponseCount("T", "open", "K", 100),))
+        trees = [TurnTree(o, Profile(1), events, model=model) for model in (aggressive, passive)]
+        strengths = [sum(w*s for w, s in zip(tree.belief, tree.strengths)) for tree in trees]
+        self.assertGreater(strengths[1], strengths[0])
+        explicit = [TurnTree(o, Profile(1), events, {1: parse_range("AsAh, QsQh")}, model) for model in (aggressive, passive)]
+        self.assertEqual(explicit[0].belief, explicit[1].belief)
+
+    def test_coach_routes_turn_and_retains_explicit_fallbacks(self):
+        profiles = [Profile(i) for i in range(6)]
+        ranges = {1: parse_range("AsAh, QsQh")}
+        advice = analyze(fixture(stack=30), profiles, samples=20, ranges=ranges)
+        self.assertEqual(advice.engine, "turn-tree")
+        self.assertTrue(advice.equity.exact)
+        self.assertEqual(advice.uncertainty.draws, 24)
+        self.assertAlmostEqual(sum(r.probability for r in advice.runouts), 1)
+        self.assertIn("not credible intervals", advice.assumptions)
+        corrected = replace(fixture(stack=30), minimum=0, maximum=0)
+        fallback = analyze(corrected, profiles, samples=20, ranges=ranges)
+        self.assertEqual(fallback.engine, "scenario")
+        self.assertIn("bounds", fallback.assumptions)
+        multi = list(fixture(stack=30).seats)
+        multi[2] = replace(multi[2], status="A", invested=100)
+        fallback = analyze(replace(fixture(stack=30), seats=tuple(multi), pot=300), profiles, samples=20)
+        self.assertEqual(fallback.engine, "scenario")
 
 
 if __name__ == "__main__":

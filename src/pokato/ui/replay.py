@@ -225,7 +225,7 @@ class ReplayWindow:
                     hand = self.hands[self.hand_index]
                     self.archive.save_scenario(hand.session, hand.hand, len(data[1].events), data[2], data[4])
                     self.heading.configure(text=f"Hand #{data[2].hand} · saved scenario")
-                    self.status.configure(text="Scenario saved. Originals unchanged. Intervals exclude range/model uncertainty.")
+                    self.status.configure(text="Scenario saved. Originals unchanged. See results for sampling and policy sensitivity limits.")
                 except ValueError as exc:
                     self.status.configure(text=str(exc))
         if self.future is None and self.pending is not None:
@@ -253,6 +253,13 @@ class ReplayWindow:
             lines.append(f"{action:<17} {a:+8.1f}" if a is not None else f"{action:<17}      n/a")
             lines[-1] += f" {b:+9.1f}" if b is not None else "       n/a"
             lines[-1] += f" {b-a:+8.1f}" if a is not None and b is not None else "      n/a"
+        if scenario.uncertainty:
+            u = scenario.uncertainty
+            lines.extend(["", "APPROXIMATE 80% POLICY SENSITIVITY", u.summary(scenario.actions[0].label),
+                          f"{u.draws} policies · {u.hands}/{u.total_hands} prior hands · seed {u.seed}",
+                          f"Mean-policy quadrature shift: {u.quadrature_shift:.1f} chips (not an error bound)"])
+            for a in u.actions:
+                lines.append(f"{a.label}: [{a.low:+.1f}, {a.high:+.1f}] chips · preferred in {a.best_fraction:.0%} of draws")
         eq = scenario.equity
         lines.extend(["", f"Scenario: {scenario.recommendation}",
                       f"Pot-weighted equity: {eq.share:.1%}",
@@ -261,15 +268,20 @@ class ReplayWindow:
             label = "Refund" if pot.refund else f"Pot {i}"
             lines.append(f"{label}: {pot.amount} chips · eligible {','.join(NAMES[s] for s in pot.eligible)}")
             lines.append(f"  Your payout {pot.hero_award:.2f} ± {1.96 * pot.error:.2f} sampling")
-        if scenario.engine != "river-tree":
+        if scenario.engine not in ("river-tree", "turn-tree"):
             lines.extend(["", "EV SAMPLING INTERVALS"] + [f"{a.label}: ±{1.96*a.error:.2f} chips" for a in scenario.actions])
         else:
             lines.extend(["", "Finite-tree EVs use exact integration. Response/range uncertainty is not an EV confidence interval."])
-        if scenario.engine == "river-tree":
-            lines.extend(["", f"RIVER TREE · {scenario.nodes} decision nodes", "SESSION RESPONSE MODEL · 90% POSTERIOR INTERVALS",
+        if scenario.engine in ("river-tree", "turn-tree"):
+            street = "TURN / RIVER" if scenario.engine == "turn-tree" else "RIVER"
+            lines.extend(["", f"{street} TREE · {scenario.nodes} decision nodes", "SESSION RESPONSE MODEL · 90% POSTERIOR INTERVALS",
                           *scenario.evidence, "", "FIRST OPPONENT RESPONSE / HERO CONTINUATION"])
             for b in scenario.branches:
                 lines.append(f"{b.action} → {b.response}: {b.probability:.1%}; then {b.continuation}; EV {b.ev:+.1f}")
+        if scenario.runouts:
+            lines.extend(["", "RIVER CARD / PROBABILITY / SHOWDOWN EQUITY", "Current range, before future betting; no sampling error."])
+            for r in sorted(scenario.runouts, key=lambda r: r.share, reverse=True):
+                lines.append(f"{r.card}: {r.probability:.2%} / {r.share:.1%}")
         lines.extend(["", scenario.assumptions])
         self.write(self.output, "\n".join(lines))
         self.last_results = (original, scenario)
