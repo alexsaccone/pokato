@@ -39,23 +39,26 @@ class AnalysisTests(unittest.TestCase):
         weak = range_weight(("2s", "7h"), (), event, profile)
         self.assertGreater(premium, weak)
 
-    def test_call_ev_formula_and_side_pot_abstention(self):
+    def test_call_ev_formula_and_all_in_analysis(self):
         game = Game()
         game.new_hand()
         o = Reader().read(render(game))
         seats = list(o.seats)
         for i, s in enumerate(seats):
             seats[i] = replace(s, status="A" if i < 2 else "F", bet=0, invested=0)
-        seats[1] = replace(seats[1], bet=50, invested=150)
+        seats[0] = replace(seats[0], invested=50)
+        seats[1] = replace(seats[1], bet=50, invested=100)
         o = replace(o, actor=0, street="R", hole=("2c", "3d"),
                     board=tuple("As Ks Qs Js Ts".split()), seats=tuple(seats), pot=150,
                     call=50, minimum=0, maximum=0)
         advice = analyze(o, [Profile(i) for i in range(6)], samples=40)
         call = next(a for a in advice.actions if a.label == "Call")
         self.assertEqual(advice.threshold, 0.25)
-        self.assertEqual(call.ev, 50)
+        self.assertAlmostEqual(call.ev, 50)
         seats[1] = replace(seats[1], status="I", stack=0)
-        self.assertFalse(analyze(replace(o, seats=tuple(seats)), [Profile(i) for i in range(6)]).actions)
+        all_in = analyze(replace(o, seats=tuple(seats)), [Profile(i) for i in range(6)])
+        self.assertTrue(all_in.actions)
+        self.assertEqual(next(a.ev for a in all_in.actions if a.label == "Call"), call.ev)
 
 
 if __name__ == "__main__":
