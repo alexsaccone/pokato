@@ -3,6 +3,7 @@ from PIL import Image, ImageChops, ImageStat
 from pokato.core.cards import DECK, validate_cards
 from pokato.core.game import Event
 from pokato.simulator.layout import FIELDS, CELL_W, CELL_H, WIDTH, HEIGHT, ALPHABET, glyph
+from .scaling import templates_at, alphabet_at
 
 
 class ReadError(ValueError):
@@ -47,7 +48,7 @@ class Reader:
 
     def read(self, frame):
         size = frame.size
-        if size[0] < WIDTH or size[1] < HEIGHT or abs(size[0] / WIDTH - size[1] / HEIGHT) > 0.003:
+        if size[0] < round(WIDTH * 0.5) or size[1] < round(HEIGHT * 0.5) or abs(size[0] / WIDTH - size[1] / HEIGHT) > 0.003:
             raise ReadError("Unsupported table size or aspect ratio")
         frame = frame.convert("RGB")
         if size != (WIDTH, HEIGHT):
@@ -59,12 +60,25 @@ class Reader:
             for n in range(field.length):
                 x = field.x + n * CELL_W
                 crop = frame.crop((x, field.y, x + CELL_W, field.y + CELL_H))
-                char = self.exact.get(crop.tobytes())
+                compact = size[0] < WIDTH
+                templates = self.templates
+                if compact:
+                    crop = crop.crop((2, 2, CELL_W - 2, CELL_H - 2))
+                    calibrated = templates_at(x, field.y, size)
+                    templates = {c: calibrated[c] for c in alphabet_at(key, n)}
+                    # If two allowed glyphs lose the same pixels, reject them.
+                    signatures = {}
+                    for c, template in templates.items():
+                        signatures.setdefault(template.tobytes(), []).append(c)
+                    matches = signatures.get(crop.tobytes(), [])
+                    char = matches[0] if len(matches) == 1 else None
+                else:
+                    char = self.exact.get(crop.tobytes())
                 if char is None:
                     scores = sorted((sum(ImageStat.Stat(ImageChops.difference(crop, template)).mean) / (3 * 255), c)
-                                    for c, template in self.templates.items())
+                                    for c, template in templates.items())
                     error, char = scores[0]
-                    if error > 0.008 or scores[1][0] - error < 0.008:
+                    if error > 0.008 or (len(scores) > 1 and scores[1][0] - error < 0.008):
                         raise ReadError(f"Unreadable {key}; restore a clear, undistorted table")
                     confidence = min(confidence, 1 - error)
                 chars.append(char)

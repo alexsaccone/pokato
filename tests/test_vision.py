@@ -39,7 +39,8 @@ class VisionTests(unittest.TestCase):
         g.new_hand()
         frame = render(g)
         expected = reader.read(frame)
-        for size in ((981, 801), (1127, 920), (1470, 1200), (1960, 1600)):
+        for size in ((490, 400), (588, 480), (637, 520), (784, 640), (823, 672),
+                     (981, 801), (1127, 920), (1470, 1200), (1960, 1600)):
             with self.subTest(size=size):
                 observed = reader.read(frame.resize(size, Image.Resampling.NEAREST))
                 self.assertEqual(observed.hole, expected.hole)
@@ -56,6 +57,21 @@ class VisionTests(unittest.TestCase):
             g.act("K" if g.legal()["check"] else "C")
         with self.assertRaisesRegex(ReadError, "Missed action"):
             tracker.accept(reader.read(render(g)))
+
+    def test_compact_reading_through_multiple_hands(self):
+        reader = Reader()
+        for seed in range(5):
+            g = Game(seed)
+            g.new_hand()
+            while True:
+                for size in ((490, 400), (637, 520)):
+                    observed = reader.read(render(g).resize(size, Image.Resampling.NEAREST))
+                    self.assertEqual(observed.hole, tuple(g.players[0].hole))
+                    self.assertEqual(observed.board, tuple(g.board))
+                    self.assertEqual(observed.events, tuple(g.events[-8:]))
+                if g.actor < 0:
+                    break
+                g.act("K" if g.legal()["check"] else "C")
 
 
 if __name__ == "__main__":
