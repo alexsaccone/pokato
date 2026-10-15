@@ -329,7 +329,8 @@ class App:
             key = (o.hand, o.street, o.actor, len(self.tracker.events))
             if key != self.archive_key:
                 self.archive.save(self.session, o, tuple(self.tracker.events),
-                                  [self.history.profile(i) for i in range(6)])
+                                  [self.history.profile(i, self.session) for i in range(6)],
+                                  [self.history.session_model(self.session, i) for i in range(6)])
                 self.archive_key = key
             if key != self.current_key:
                 self.invalidate("Calculating…" if o.actor == 0 else "Waiting for your turn…")
@@ -343,9 +344,10 @@ class App:
                 if job_key == self.current_key:
                     self.show_advice(result)
             if o.actor == 0 and self.advice is None and self.future is None:
-                profiles = [self.history.profile(i) for i in range(6)]
+                profiles = [self.history.profile(i, self.session) for i in range(6)]
+                models = tuple(self.history.session_model(self.session, i) for i in range(6))
                 self.future_key = key
-                self.future = self.executor.submit(analyze, o, profiles, tuple(self.tracker.events), self.samples)
+                self.future = self.executor.submit(analyze, o, profiles, tuple(self.tracker.events), self.samples, None, models)
         except (ReadError, OSError, ValueError) as exc:
             self.last_error = str(exc)
             self.capture_status.configure(text="○ Read paused", fg="#e8b18d")
@@ -369,9 +371,13 @@ class App:
         self.call_number.configure(text=str(o.call))
         rows = []
         for i in range(1, 6):
-            p = self.history.profile(i)
-            rows.append(f"{NAMES[i]} · {p.hands} preflop decisions\n"
-                        f"  VPIP {p.vpip_count}/{p.hands} · PFR {p.pfr_count}/{p.hands} · Fold vs bet {p.folds}/{p.faced}")
+            p = self.history.profile(i, self.session)
+            model = self.history.session_model(self.session, i)
+            posterior = model.posterior("R", 50, 150)
+            status = "baseline" if not model.opportunities else f"adapting · {model.opportunities} observed decisions"
+            rows.append(f"{NAMES[i]} · {status}\n"
+                        f"  Session VPIP {p.vpip_count}/{p.hands} · PFR {p.pfr_count}/{p.hands}\n"
+                        f"  River/medium: {posterior.local} direct opportunities · {posterior.data_weight:.0%} data weight")
         self.profile_label.configure(text="\n".join(rows))
         descriptions = {"B": "blind", "F": "fold", "K": "check", "C": "call", "R": "raise"}
         self.events_label.configure(text="\n".join(f"{NAMES[e.seat]} · {e.street} · {descriptions[e.action]}"
@@ -391,7 +397,8 @@ class App:
         self.draw_chart()
         self.recommendation.configure(text=advice.recommendation.split(" · ")[0].replace("EV unavailable: all-in / side-pot state", "EV unavailable"))
         self.best_ev_label.configure(text=f"EV {advice.actions[0].ev:+.1f}" if advice.actions else "")
-        self.model_label.configure(text="Model estimate · close EVs" if "sampling tie" in advice.recommendation else "Model estimate")
+        self.model_label.configure(text=f"River tree · {len(advice.actions)} actions · Details" if advice.engine == "river-tree"
+                                   else "Model estimate · close EVs" if "sampling tie" in advice.recommendation else "Model estimate")
         for index, (action_label, value_label) in enumerate(self.ev_cells):
             if index < len(advice.actions):
                 action = advice.actions[index]
@@ -405,7 +412,12 @@ class App:
                                                    for a in advice.actions))
         pot_lines = "\n".join(f"{'Refund' if p.refund else 'Pot'} {i+1}: {p.amount} chips · your expected payout {p.hero_award:.1f}"
                               for i, p in enumerate(advice.pots))
-        self.assumptions.configure(text=advice.assumptions + ("\n" + pot_lines if pot_lines else ""))
+        evidence = "\n".join(advice.evidence)
+        branches = "\n".join(f"{b.action} → {b.response}: {b.probability:.1%}; then {b.continuation}; EV {b.ev:+.1f}"
+                             for b in advice.branches)
+        self.assumptions.configure(text=advice.assumptions + ("\n" + pot_lines if pot_lines else "") +
+                                  ("\nSESSION RESPONSE MODEL (90% posterior intervals)\n" + evidence if evidence else "") +
+                                  ("\nRESPONSE BRANCHES\n" + branches if branches else ""))
         self.hud.after_idle(self.fit_essentials)
 
     def draw_chart(self):

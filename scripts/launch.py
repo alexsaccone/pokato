@@ -8,4 +8,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--self-test":
         from pokato.diagnostics import packaged_smoke
         sys.exit(packaged_smoke(Path(sys.argv[2])))
+    if len(sys.argv) == 3 and sys.argv[1] == "--self-test-river":
+        from pokato.river_diagnostics import river_smoke
+        sys.exit(river_smoke(Path(sys.argv[2])))
     main()

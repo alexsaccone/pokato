@@ -236,8 +236,9 @@ class ReplayWindow:
     @staticmethod
     def work(data, samples):
         _, snapshot, o, ranges, _ = data
-        original = analyze(snapshot.observation, snapshot.profiles, snapshot.events, samples)
-        scenario = original if not ranges and o == snapshot.observation else analyze(o, snapshot.profiles, snapshot.events, samples, ranges)
+        original = analyze(snapshot.observation, snapshot.profiles, snapshot.events, samples, models=snapshot.models)
+        scenario = original if not ranges and o == snapshot.observation else analyze(
+            o, snapshot.profiles, snapshot.events, samples, ranges, snapshot.models)
         return original, scenario
 
     def show_results(self, original, scenario):
@@ -260,7 +261,15 @@ class ReplayWindow:
             label = "Refund" if pot.refund else f"Pot {i}"
             lines.append(f"{label}: {pot.amount} chips · eligible {','.join(NAMES[s] for s in pot.eligible)}")
             lines.append(f"  Your payout {pot.hero_award:.2f} ± {1.96 * pot.error:.2f} sampling")
-        lines.extend(["", "EV SAMPLING INTERVALS"] + [f"{a.label}: ±{1.96*a.error:.2f} chips" for a in scenario.actions])
+        if scenario.engine != "river-tree":
+            lines.extend(["", "EV SAMPLING INTERVALS"] + [f"{a.label}: ±{1.96*a.error:.2f} chips" for a in scenario.actions])
+        else:
+            lines.extend(["", "Finite-tree EVs use exact integration. Response/range uncertainty is not an EV confidence interval."])
+        if scenario.engine == "river-tree":
+            lines.extend(["", f"RIVER TREE · {scenario.nodes} decision nodes", "SESSION RESPONSE MODEL · 90% POSTERIOR INTERVALS",
+                          *scenario.evidence, "", "FIRST OPPONENT RESPONSE / HERO CONTINUATION"])
+            for b in scenario.branches:
+                lines.append(f"{b.action} → {b.response}: {b.probability:.1%}; then {b.continuation}; EV {b.ev:+.1f}")
         lines.extend(["", scenario.assumptions])
         self.write(self.output, "\n".join(lines))
         self.last_results = (original, scenario)
