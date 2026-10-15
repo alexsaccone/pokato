@@ -18,6 +18,8 @@ For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python
 Tk, Pillow, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
+The current compact-HUD build is **`dist\Pokato-Compact.exe`**, created alongside
+the original executable because Windows prevents replacing a running program.
 
 To run from source:
 
@@ -49,21 +51,26 @@ edge or the bottom-right grip to resize. Click the square button or double-click
 the header to maximize/restore. The minus minimizes; the cross closes the coach
 or exits the table. **Show coach** reopens a hidden or minimized HUD.
 
-The coach starts at 94% opacity. Click **Glass 94%** in its footer to cycle
-between 88%, 100%, and 94%. Scroll anywhere in the HUD for more detail. Widening
-it beyond the display-scaled layout breakpoint moves opponent evidence beside
-the decision panel.
+The coach starts at 94% opacity. Click **94%** in its footer to cycle between
+88%, 100%, and 94%.
+
+The default HUD targets **7% of the monitor's usable area**: roughly **960 × 640**
+on a 3840 × 2400 laptop after allowing for the taskbar. Cards and board, position,
+pot, call cost, equity, break-even pot odds, recommendation, and action EVs are
+visible together without scrolling. Smaller screens use a readable minimum.
+Click **Details** for opponent history, numerical uncertainty, and calculation
+assumptions; only this optional region scrolls. **Less** returns to the compact
+overlay. Widening the details view gives its supporting panels two columns.
 
 ### Readable text on laptops and high-DPI monitors
 
-The HUD follows Windows per-monitor display scaling. Dense 4K displays use at
-least 200% sizing even when Windows is set to 100%; a 4K laptop at 250% gets
-40-pixel body text by default. Ordinary 100% displays start with 16-pixel body
-text and 14-pixel captions. Window defaults fit the current monitor's usable
-area, including smaller laptop screens; content scrolls rather than shrinking
-the text to fit.
+HUD typography balances display DPI with the compact screen-area budget. The
+4K default uses approximately 30-pixel body text, larger cards and recommendation
+text, and compact spacing. Ordinary 100% displays start with 16-pixel body text.
+Window defaults fit the monitor's usable area. Real font measurements keep the
+crucial widgets visible; larger manual zoom can expand the window when necessary.
 
-Use **A− / A+** at the top of the coach to adjust text from 80% to 200% of the
+Use **A− / A+** in the coach's footer to adjust text from 80% to 200% of the
 automatic size. **Reset** restores the display-aware default. Keyboard shortcuts
 are **Ctrl + / Ctrl − / Ctrl 0**, and **Ctrl + mouse wheel** also adjusts text.
 The setting is saved in `%USERPROFILE%\.pokato\settings.json` and remains relative
@@ -125,7 +132,9 @@ The window smoke check exercises custom drag/resize gestures, maximize/restore,
 minimize, transparency controls, HUD reflow, and recognition after table resizing.
 The readability check opens real widgets with simulated 768p/1080p work areas
 at 100% and 150%, plus a 4K work area at 250%. It checks auto-fit, font sizes,
-saved zoom controls, scrolling and pixel recognition without changing OS settings.
+saved zoom controls, optional details and pixel recognition without changing OS
+settings. A full-board fixture verifies that all essential widgets fit without
+clipping or scrolling, and the 4K overlay stays close to the 7% area target.
 
 ## Build the executable
 
@@ -134,6 +143,12 @@ On Windows, from the repository root:
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -e ".[build]"
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+
+To build alongside an executable that is currently running, supply a new name:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 -ExecutableName Pokato-Compact
 ```
 
 The single-file GUI build is written to `dist\Pokato.exe`; generated build files

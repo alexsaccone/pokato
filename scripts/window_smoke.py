@@ -57,6 +57,7 @@ def main():
         read_table()
         ImageGrab.grab(window=root.winfo_id()).save(output / "window-smoke-table-maximized.png")
         app.chrome.max_button.invoke()
+        app.details_button.invoke()
         app.hud.geometry(geometry(app.hud_display.fit(860 * app.hud_scale, 940 * app.hud_scale)))
 
     def wide_hud():

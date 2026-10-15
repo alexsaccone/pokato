@@ -22,13 +22,17 @@ def packaged_smoke(report_path):
               "executable": sys.executable, "checks": []}
 
     def finish(error=None):
+        report["ok"] = error is None
         if error:
             report["error"] = error
-        else:
-            report["ok"] = True
+        try:
+            app.close()
+        except Exception:
+            report["ok"] = False
+            report["error"] = traceback.format_exc()
+            root.quit()
         report["elapsed_seconds"] = round(time.monotonic() - started, 2)
         report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        app.close()
 
     root.report_callback_exception = lambda kind, value, tb: finish("".join(traceback.format_exception(kind, value, tb)))
 
@@ -77,10 +81,21 @@ def packaged_smoke(report_path):
             body_pixels = abs(app.hud_fonts.get(10).cget("size"))
             if body_pixels < font_pixels(10, app.hud_scale):
                 raise AssertionError("HUD text did not scale to the display")
+            if app.details_open or app.hud_canvas.winfo_ismapped():
+                raise AssertionError("Default HUD should not require scrolling")
+            for widget in app.crucial_widgets:
+                if widget.winfo_rooty() + widget.winfo_height() > app.hud_chrome.footer.winfo_rooty():
+                    raise AssertionError("Crucial HUD content is clipped")
+            area_fraction = app.hud.winfo_width() * app.hud.winfo_height() / (app.display.width * app.display.height)
+            if app.display.width >= 3000 and not 1 / 16 < area_fraction < 0.08:
+                raise AssertionError(f"HUD footprint is wrong: {area_fraction:.1%}")
             report.update(hand=observed.hand, equity=app.advice.equity.share)
             report.update(display_dpi=app.display.dpi, hud_scale=app.hud_scale, body_font_pixels=body_pixels)
+            report.update(hud_width=app.hud.winfo_width(), hud_height=app.hud.winfo_height(), hud_area_fraction=area_fraction)
             report["checks"].extend(("window capture and reconstructed history", "equity and action EV",
-                                      "frameless windows and translucent HUD", "display-aware readable HUD fonts"))
+                                      "frameless windows and translucent HUD", "display-aware readable HUD fonts",
+                                      "compact footprint with visible essentials and no scrolling"))
+            app.toggle_details()
             app.hud.geometry(geometry(app.hud_display.fit(860 * app.hud_scale, 940 * app.hud_scale)))
             app.chrome.toggle_maximize()
             root.after(700, expanded)

@@ -63,13 +63,15 @@ or 100%; its content reflows into two columns when widened. Native Windows calls
 are scoped to the app's own windows for minimize, taskbar presence, and monitor
 work-area bounds. There is no standard title bar or native scrollbar.
 
-`ui/sizing.py` separates UI typography from optical calibration. Named pixel
-fonts use Windows per-monitor DPI, with a 200% floor for dense 4K panels and
-minimum 14-logical-pixel captions. Manual text zoom is relative to automatic
-display scaling and saved under the user profile. The HUD detects monitor DPI
-changes, reflows with a scaled breakpoint, and clamps default/minimum sizes to
-the work area. Content remains scrollable at larger text sizes. Screen-size
-checks cover 768p, 1080p, and 4K; they simulate work areas without changing OS DPI.
+`ui/sizing.py` separates UI typography from optical calibration. The default
+overlay targets 7% of the usable work area with readable minimum dimensions;
+its font scale balances DPI against that compact budget. `ui/coach.py` builds
+the non-scrolling essentials and optional expandable details. Actual widget/font
+measurements set the minimum size so cards, metrics, recommendation and EVs fit.
+Only optional history/assumptions scroll. Manual text zoom is saved under the
+user profile and can expand the window when necessary; Reset restores the
+compact footprint. Screen-size checks cover 768p, 1080p and 4K, including full
+river boards and three candidate EVs, without changing OS DPI settings.
 
 ## Opponent modeling
 

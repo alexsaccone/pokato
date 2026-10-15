@@ -25,6 +25,16 @@ class SizingTests(unittest.TestCase):
                     self.assertLessEqual(x + w, display.x + display.width)
                     self.assertLessEqual(y + h, display.y + display.height)
 
+    def test_compact_4k_hud_is_a_little_over_one_sixteenth(self):
+        for dpi in (96, 192, 240, 288):
+            display = Display(0, 0, 3840, 2280, dpi)
+            width, height, _, _ = display.hud_rect()
+            ratio = width * height / (display.width * display.height)
+            self.assertGreater(ratio, 1 / 16)
+            self.assertLess(ratio, 0.075)
+            self.assertGreaterEqual(font_pixels(10, display.compact_scale), 28)
+            self.assertEqual(display.hud_rect(), display.hud_rect(2.0))
+
     def test_zoom_round_trip_and_invalid_settings(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "settings.json"

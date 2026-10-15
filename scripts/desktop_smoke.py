@@ -36,6 +36,10 @@ def main():
             assert o.pot == app.game.pot
             assert tuple(app.tracker.events) == tuple(app.game.events)
             assert app.advice.actions, "Expected supported action EVs"
+            assert not app.details_open and not app.hud_canvas.winfo_ismapped()
+            footer_y = app.hud_chrome.footer.winfo_rooty()
+            for widget in app.crucial_widgets:
+                assert widget.winfo_rooty() + widget.winfo_height() <= footer_y, "Essential content clipped"
             capture_widget(app.table).save(output / "desktop-smoke-table.png")
             ImageGrab.grab(window=root.winfo_id()).save(output / "desktop-smoke.png")
             ImageGrab.grab(window=app.hud.winfo_id()).save(output / "desktop-smoke-hud.png")

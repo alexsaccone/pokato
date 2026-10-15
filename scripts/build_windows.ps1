@@ -1,3 +1,8 @@
+param(
+    [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9_-]*$')]
+    [string]$ExecutableName = 'Pokato'
+)
+
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $buildPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
@@ -7,10 +12,10 @@ if (-not (Test-Path -LiteralPath $buildPython)) {
 Push-Location -LiteralPath $projectRoot
 try {
     $buildManifest = Join-Path $projectRoot 'packaging\pokato.manifest'
-    & $buildPython -m PyInstaller --noconfirm --onefile --windowed --noupx --name Pokato --icon NONE --paths src --manifest $buildManifest --specpath build scripts/launch.py
+    & $buildPython -m PyInstaller --noconfirm --onefile --windowed --noupx --name $ExecutableName --icon NONE --paths src --manifest $buildManifest --specpath build scripts/launch.py
     if ($LASTEXITCODE -ne 0) { throw 'Executable build failed.' }
-    $builtExecutable = Join-Path $projectRoot 'dist\Pokato.exe'
-    if (-not (Test-Path -LiteralPath $builtExecutable)) { throw 'Build did not produce Pokato.exe.' }
+    $builtExecutable = Join-Path $projectRoot "dist\$ExecutableName.exe"
+    if (-not (Test-Path -LiteralPath $builtExecutable)) { throw "Build did not produce $ExecutableName.exe." }
     Get-Item -LiteralPath $builtExecutable | Select-Object FullName, Length
     Get-FileHash -LiteralPath $builtExecutable -Algorithm SHA256 | Format-List Algorithm, Hash, Path
 }

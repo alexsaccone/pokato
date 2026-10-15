@@ -1,6 +1,7 @@
 """Display-aware sizing independent of the table's optical reference pixels."""
 from dataclasses import dataclass
 import json
+import math
 from pathlib import Path
 import tkinter.font as tkfont
 
@@ -35,10 +36,19 @@ class Display:
         return width, height, x, y
 
     def hud_rect(self, zoom=1.0, beside=None):
-        s = self.scale * zoom
-        width, height, _, _ = self.fit(480 * s, 900 * s)
+        # Text zoom is independent of footprint. Keep the default overlay near
+        # 7% of usable screen area, with a readable floor on smaller displays.
+        area = self.width * self.height * 0.07
+        width = max(500, round(math.sqrt(area * 1.5)))
+        height = max(340, round(area / width))
+        width, height, _, _ = self.fit(width, height)
         x = beside if beside is not None else self.x + self.width - width - self.margin
         return self.fit(width, height, x, self.y + self.margin)
+
+    @property
+    def compact_scale(self):
+        width, height, _, _ = self.hud_rect()
+        return min(self.scale, max(1.0, min(width / 500, height / 340)))
 
     def table_rect(self):
         width = max(min(1004, self.width - 2 * self.margin), min(1040 * self.scale, self.width * 0.64))
