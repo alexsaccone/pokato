@@ -18,8 +18,8 @@ For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python
 Tk, Pillow, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
-The Bayesian river-analysis milestone is **`dist\Pokato-Bayes.exe`**, built
-alongside earlier executables so a running program does not need to be replaced.
+This is the one app for all features, including Bayesian river analysis and hand
+review. Future builds update this same file; close Pokato before rebuilding.
 
 To run from source:
 
@@ -185,7 +185,7 @@ and posterior intervals. Turn/flop/multiway decisions retain labeled scenarios.
 .\.venv\Scripts\python.exe scripts/benchmark_river.py --pairs 1200 --seed 31
 ```
 
-Build with `-ExecutableName Pokato-Bayes`. The packaged executable also supports
+The packaged `dist\Pokato.exe` also supports
 `--self-test-river <absolute-report-path>` for the new capture/model/replay path.
 
 ## Verify
@@ -227,20 +227,15 @@ On Windows, from the repository root:
 powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
 ```
 
-To build alongside an executable that is currently running, supply a new name:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1 -ExecutableName Pokato-Compact
-```
-
-The single-file GUI build is written to `dist\Pokato.exe`; generated build files
+Close Pokato before building. Each build updates the single-file GUI app at
+`dist\Pokato.exe`; generated build files
 and the executable are ignored by Git. The Windows manifest enables per-monitor
 DPI support and runs with ordinary user privileges. To verify the packaged
 capture, analysis, resizing, and HUD pipeline:
 
 ```powershell
 $smokeReport = Join-Path $PWD 'artifacts\packaged-smoke.json'
-Start-Process -FilePath .\dist\Pokato.exe -ArgumentList '--self-test', ('"' + $smokeReport + '"') -Wait
+Start-Process -FilePath .\dist\Pokato.exe -ArgumentList '--self-test', ('"' + $smokeReport + '"') -WindowStyle Hidden -Wait
 Get-Content artifacts\packaged-smoke.json
 ```
 
