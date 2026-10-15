@@ -14,6 +14,13 @@ not included.
 
 ## Run on Windows
 
+For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python,
+Tk, Pillow, and the application; no installation or console window is required.
+You can move that single file to another folder. Statistics still live under
+your user profile, so the executable's folder does not need to be writable.
+
+To run from source:
+
 Requires Python **3.10+** with Tk. On this workstation, plain `python` selects
 3.8, so select 3.12 explicitly:
 
@@ -98,6 +105,29 @@ advice invalidation after an action. It writes ignored QA images/JSON under
 for unit tests on Windows with Python 3.10, 3.12, and 3.14.
 The window smoke check exercises custom drag/resize gestures, maximize/restore,
 minimize, transparency controls, HUD reflow, and recognition after table resizing.
+
+## Build the executable
+
+On Windows, from the repository root:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[build]"
+powershell -ExecutionPolicy Bypass -File scripts\build_windows.ps1
+```
+
+The single-file GUI build is written to `dist\Pokato.exe`; generated build files
+and the executable are ignored by Git. The Windows manifest enables per-monitor
+DPI support and runs with ordinary user privileges. To verify the packaged
+capture, analysis, resizing, and HUD pipeline:
+
+```powershell
+$smokeReport = Join-Path $PWD 'artifacts\packaged-smoke.json'
+Start-Process -FilePath .\dist\Pokato.exe -ArgumentList '--self-test', ('"' + $smokeReport + '"') -Wait
+Get-Content artifacts\packaged-smoke.json
+```
+
+The self-test briefly opens its own practice UI and closes automatically. Its
+report includes whether it ran from the frozen executable and the checks passed.
 
 ## Commit component by component
 
