@@ -88,3 +88,31 @@ git status --short
 
 The final status should be clean. `.venv`, runtime data and `artifacts/` QA images
 are ignored. Review the branch before pushing through your normal workflow.
+
+## Milestone 2 component groups
+
+The saved-review milestone was committed locally in these four groups, in order.
+The commands below record how that history was built and do not need to be rerun
+on the completed branch. Each group depends only on itself and earlier groups.
+The executable under `dist/` stays ignored.
+
+```powershell
+git add src/pokato/analysis/ranges.py tests/test_ranges.py
+git commit -m "feat(ranges): add explicit weighted combinations and joint sampling"
+
+git add src/pokato/core/pots.py src/pokato/analysis/pot_equity.py src/pokato/analysis/coach.py tests/reference_poker.py tests/test_pots.py tests/test_analysis.py
+git commit -m "feat(analysis): calculate contribution-specific pot payouts and call EV"
+
+git add src/pokato/replay tests/test_replay_store.py
+git commit -m "feat(replay): archive immutable observations and separate scenarios"
+
+git add src/pokato/ui/replay.py src/pokato/app.py scripts/replay_smoke.py pyproject.toml README.md docs
+git commit -m "feat(ui): add saved-hand review, range comparison and corrections"
+```
+
+Validation for the groups is `test_ranges.py`, `test_pots.py` plus
+`test_analysis.py`, `test_replay_store.py`, and `scripts/replay_smoke.py`
+respectively. Use the unit discovery commands above with the corresponding
+pattern. `scripts/validate.py` checks the complete project; the existing desktop
+and readability smoke checks also apply. The four milestone-2 commits are local;
+pushing them to GitHub is a separate step.

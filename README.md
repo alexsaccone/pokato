@@ -18,8 +18,8 @@ For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python
 Tk, Pillow, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
-The current compact-HUD build is **`dist\Pokato-Compact.exe`**, created alongside
-the original executable because Windows prevents replacing a running program.
+The saved-hand review milestone is **`dist\Pokato-Review.exe`**, built alongside
+earlier executables so a running program does not need to be replaced.
 
 To run from source:
 
@@ -43,6 +43,7 @@ runtime dependency. The standard Windows Python installer includes Tk.
 - **Raise to:** total contribution on this street, not additional chips.
 - **Deal next hand:** available after the hand completes.
 - **Pause bots:** pauses opponents while observation continues.
+- **Review hands:** browse saved snapshots, edit ranges and compare per-pot EVs.
 - **H:** reopen the HUD after closing it.
 - Close the practice-table window to exit both windows.
 
@@ -94,17 +95,18 @@ practice window withholds advice.
 | Display | Meaning |
 | --- | --- |
 | Range equity | Expected showdown share against heuristic weighted ranges, including ties and sampled future cards |
-| Exact river | Enumerates every available opponent combination heads-up; range assumptions remain uncertain |
-| Break-even equity | Call cost / (current pot + call cost), for supported single-pot decisions without rake |
-| Check/call EV | Assumes no future betting; a closing heads-up river call is terminal |
+| Exact river | Enumerates compatible opponent assignments up to 20,000 candidate deals; range assumptions remain uncertain |
+| Break-even equity | Call cost / eligible pot after calling; shown when there is one contestable pot |
+| Check/call EV | Contribution-specific payouts minus call cost; freezes contributions after your action, omitting remaining decisions and future betting |
 | Raise EV | One sizing with strength-conditioned folds/calls, then showdown; no reraises or future bets |
 | ± intervals | Approximate 95% Monte Carlo sampling intervals, excluding model uncertainty |
 | Sampling tie | The estimated ranking is unclear at the current sample count |
-| All-in / side pot | Equity shown; action EV and per-pot odds withheld pending per-pot analysis |
+| All-in / side pot | Call/check EV includes per-pot eligibility, integer split payouts and refunds; raises are omitted in these states |
 
 Recommendations rank supported modeled scenarios. They are not GTO solutions or
-evidence of a winning strategy. Multiway ranges use sequential card-removal
-sampling; folded players' hidden-card distributions are omitted.
+evidence of a winning strategy. The coach conditions weighted opponent ranges on
+joint card compatibility; folded players' hidden-card distributions are omitted.
+HUD equity is payout share weighted over contestable pots you can win.
 See [architecture and limitations](docs/ARCHITECTURE.md).
 
 Opponent statistics persist in `%USERPROFILE%\.pokato\practice.sqlite3`, unless
@@ -112,7 +114,49 @@ Opponent statistics persist in `%USERPROFILE%\.pokato\practice.sqlite3`, unless
 denominators count hands with an observed preflop decision; fold-versus-bet
 counts actual facing-bet decisions. Raw counts are shown, with smoothed rates
 used internally. The normal app retains no screenshots or video. Delete the
-database while the app is closed to reset statistics.
+database while the app is closed to reset statistics and saved hands.
+
+## Saved-hand review (milestone 2)
+
+Play to your turn, then click **Review hands**. Observed snapshots are saved
+automatically, including completed and partial hands. Practice bots pause while
+the review window is open. Closing it restores their previous pause state.
+
+Select a hand and use **First / Previous / Next / Next decision / Last** to step
+through the recorded timeline. Only public information and your visible cards
+are archived; opponents' hidden cards never enter replay or analysis. The
+profile evidence for each snapshot is frozen at capture time, so later hands
+cannot change an old analysis's automatic prior.
+
+At your turn, enter a range for each opponent and click **Calculate & save**.
+The results compare original and scenario action EVs, including deltas, sampling
+uncertainty and each pot's eligibility/payout. These are sensitivity comparisons;
+they do not establish that the edited range is correct.
+
+| Range syntax | Meaning |
+| --- | --- |
+| `Auto` or blank | Use the saved evidence and heuristic range model |
+| `QQ+` | QQ, KK, AA |
+| `ATs+` | ATs, AJs, AQs, AKs |
+| `AKo` | All offsuit AK combinations |
+| `AsKh:0.5` | One exact combination with relative weight 0.5 |
+| `*:1, AA:0` | All combinations except AA; later tokens override earlier ones |
+
+Separate tokens with commas or spaces. Known cards block impossible combinations;
+fully blocked or mutually conflicting opponent ranges produce an error. Explicit
+ranges replace the automatic final range, including its action-history weighting.
+They apply only to live opponents at the selected snapshot.
+
+**Correct state…** edits cards and seat amounts in a separate scenario. The board
+length and acting player stay fixed to that snapshot. Corrected states compare
+check/call and fold, with raises disabled because their original bounds may no
+longer be valid. Click **Calculate & save** to persist the correction and ranges.
+**Reset** deletes the scenario and restores the original observation.
+
+The SQLite migration is additive and keeps existing statistics. Older event-only
+history lacks cards and stacks and cannot be reconstructed retroactively. Only
+newly observed hands appear in review. Structured snapshots and scenarios persist
+in the same database; screenshots and video remain unsaved by normal operation.
 
 ## Verify
 
@@ -121,6 +165,7 @@ database while the app is closed to reset statistics.
 .\.venv\Scripts\python.exe scripts/desktop_smoke.py
 .\.venv\Scripts\python.exe scripts/window_smoke.py
 .\.venv\Scripts\python.exe scripts/readability_smoke.py
+.\.venv\Scripts\python.exe scripts/replay_smoke.py
 ```
 
 Unit tests need no display. The smoke check opens and closes the local UI,
@@ -135,6 +180,12 @@ at 100% and 150%, plus a 4K work area at 250%. It checks auto-fit, font sizes,
 saved zoom controls, optional details and pixel recognition without changing OS
 settings. A full-board fixture verifies that all essential widgets fit without
 clipping or scrolling, and the 4K overlay stays close to the 7% area target.
+The replay check verifies captured-hand browsing, saved range sensitivity,
+invalid-correction rejection, original immutability, reset and bot pause/restore.
+Numerical tests independently enumerate five-card hands and distribute chips
+one at a time; random fixtures compare these references with production hand
+ranks and payouts. A turn-runout fixture checks sampled payouts against exact
+reference enumeration. These checks establish arithmetic, not strategic strength.
 
 ## Build the executable
 

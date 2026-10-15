@@ -15,6 +15,7 @@ from pokato.vision.reader import Reader, ReadError
 from pokato.vision.tracker import Tracker
 from pokato.analysis.history import History
 from pokato.analysis.coach import analyze
+from pokato.replay.store import Archive
 from pokato.ui.window import WindowChrome, BG, TEXT, MUTED, ACCENT
 from pokato.ui.sizing import Display, Preferences, font_pixels, geometry
 
@@ -37,6 +38,9 @@ class App:
         self.game = Game(seed)
         self.reader, self.tracker = Reader(), Tracker()
         self.history = History(database or Path.home() / ".pokato" / "practice.sqlite3")
+        self.archive = Archive(self.history.connection)
+        self.archive_key = None
+        self.replay_window = None
         self.session = uuid.uuid4().hex
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pokato-analysis")
         self.future = None
@@ -86,6 +90,7 @@ class App:
         self.next_button = self.button(controls, "Deal next hand", self.new_hand)
         self.pause_button = self.button(controls, "Pause bots", self.toggle_pause)
         self.button(controls, "Show coach", self.open_hud)
+        self.button(controls, "Review hands", self.open_replay)
         self.control_items = list(controls.winfo_children())
         for widget in self.control_items:
             widget.pack_forget()
@@ -210,6 +215,13 @@ class App:
         if hasattr(self, "hud_chrome"):
             self.hud_chrome.restore()
 
+    def open_replay(self):
+        if self.replay_window is not None and not self.replay_window.closed:
+            self.replay_window.chrome.restore()
+        else:
+            from pokato.ui.replay import ReplayWindow
+            self.replay_window = ReplayWindow(self)
+
     def cycle_opacity(self):
         levels = (0.94, 0.88, 1.0)
         current = float(self.hud.attributes("-alpha"))
@@ -315,6 +327,10 @@ class App:
             self.last_seen = time.monotonic()
             self.last_error = None
             key = (o.hand, o.street, o.actor, len(self.tracker.events))
+            if key != self.archive_key:
+                self.archive.save(self.session, o, tuple(self.tracker.events),
+                                  [self.history.profile(i) for i in range(6)])
+                self.archive_key = key
             if key != self.current_key:
                 self.invalidate("Calculating…" if o.actor == 0 else "Waiting for your turn…")
                 self.current_key = key
@@ -370,7 +386,7 @@ class App:
         method = f"Exact enumeration · {eq.samples} combinations" if eq.exact else f"Monte Carlo · {eq.samples} samples"
         interval = "" if eq.exact else f" ± {1.96 * eq.standard_error:.1%} sampling"
         self.equity_number.configure(text=f"{eq.share:.0%}")
-        self.price_number.configure(text=f"{advice.threshold:.0%}" if advice.actions else "—")
+        self.price_number.configure(text=f"{advice.threshold:.0%}" if advice.actions and advice.pot_odds_valid else "—")
         self.metrics.configure(text=f"{advice.hand_name} · {method}" + (f"\n{interval.strip()}" if interval else ""))
         self.draw_chart()
         self.recommendation.configure(text=advice.recommendation.split(" · ")[0].replace("EV unavailable: all-in / side-pot state", "EV unavailable"))
@@ -387,7 +403,9 @@ class App:
         self.action_label.configure(text="\n".join(f"{a.label}: {a.ev:+.1f} chips" +
                                                    (f" ± {1.96 * a.error:.1f} sampling" if a.error else "")
                                                    for a in advice.actions))
-        self.assumptions.configure(text=advice.assumptions)
+        pot_lines = "\n".join(f"{'Refund' if p.refund else 'Pot'} {i+1}: {p.amount} chips · your expected payout {p.hero_award:.1f}"
+                              for i, p in enumerate(advice.pots))
+        self.assumptions.configure(text=advice.assumptions + ("\n" + pot_lines if pot_lines else ""))
         self.hud.after_idle(self.fit_essentials)
 
     def draw_chart(self):
@@ -397,13 +415,15 @@ class App:
         right = max(120, self.chart.winfo_width() - 4)
         for y, value, color in ((self.hp(12), self.advice.equity.share, ACCENT), (self.hp(35), self.advice.threshold, "#8b9db6")):
             self.chart.create_rectangle(0, y - self.hp(4), right, y + self.hp(4), fill="#293342", outline="")
-            if self.advice.actions or y == self.hp(12):
+            if (self.advice.actions and self.advice.pot_odds_valid) or y == self.hp(12):
                 self.chart.create_rectangle(0, y - self.hp(4), right * value, y + self.hp(4), fill=color, outline="")
 
     def close(self):
         if self.closed:
             return
         self.closed = True
+        if self.replay_window is not None:
+            self.replay_window.close()
         for job in self.root.tk.call("after", "info"):
             # Callbacks may be registered by the HUD rather than the root.
             # Cancel timers here; let each widget delete its own Tcl commands

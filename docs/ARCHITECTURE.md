@@ -29,6 +29,8 @@ Smoke tests compare observations against privileged simulator truth only for QA.
 | `simulator` | Fixed visible skin, ordinary readable text fields and simple opponents |
 | `vision` | Capture, glyph recognition, immutable observations and reconstructed event ledger |
 | `analysis` | SQLite statistics, range weights, equity and action scenarios |
+| `replay` | Append-only observed snapshots, saved scenarios and public-state rendering |
+| `ui/replay.py` | Timeline browsing, range sensitivity, corrections and per-pot results |
 | `app.py` / `ui` | Custom frameless controls, responsive HUD, background analysis and result freshness |
 
 ## Recognition and freshness
@@ -88,24 +90,53 @@ are not supplied to the coach.
 
 ## Numerical limits
 
-Equity includes ties. Heads-up river equity enumerates all available hole-card
-combinations. Other states use seeded weighted Monte Carlo. Multiway opponents
-are sampled sequentially with shuffled sampling order and card removal, which
-approximates rather than exactly computes their joint posterior. Folded players'
-hidden-card distributions are omitted.
+The coaching engine computes integer-chip payouts for each contribution tier.
+Folded contributions remain in pots; eligibility excludes folded players. Sole
+contributors receive uncalled refunds. Odd chips go clockwise from the button.
+Equity includes ties and weights payout share over pots the hero can contest,
+excluding refunds. Overall payout standard error retains covariance across pots.
 
-EV is relative to folding now (zero); prior contributions are sunk. Check/call
-assumes immediate showdown. Raise scenarios consider one legal half-pot-ish
+River deals are enumerated exactly when the product of range sizes is at most
+20,000. Other states use seeded Monte Carlo. Whole-deal rejection conditions the
+product of weighted opponent ranges on card compatibility. Fully blocked or
+overly conflicting ranges fail explicitly. Folded players' hidden distributions
+are omitted. Exact enumeration removes sampling uncertainty, not range uncertainty.
+
+EV is relative to folding now (zero); prior matched contributions are sunk.
+Existing guaranteed hero refunds are excluded from incremental EV. Check/call
+freezes contributions after the hero acts, then runs to showdown. It omits
+remaining decisions, which may include calls/folds still owed on this street.
+Raise scenarios consider one legal half-pot-ish
 sizing with strength-conditioned folds/calls and a runout. Sampled folded cards
 remain unavailable. Reraises, future bets, rake and calibrated response
 probabilities are not modeled. Sampling intervals exclude model uncertainty.
 
-The game settles all-ins and side pots. The coach withholds action EV and
-per-pot odds in these states until per-pot analysis is implemented.
+Call/check EV supports all-ins, short calls and side pots. One scalar pot-odds
+threshold is shown only for a single contestable pot. Raise scenarios remain
+disabled when an existing player is all-in. This is conditional scenario analysis,
+not a full betting-tree solver. Independent test-only five-card enumeration and
+chip-level payouts validate the arithmetic using different algorithms.
+
+## Saved replay and scenarios
+
+Three additive SQLite tables store hand summaries, versioned original snapshots,
+and separate user scenarios. Snapshot keys are session/hand/event-count. Identical
+captures are ignored. Originals contain only validated observations, full observed
+event prefixes and profile snapshots from that moment; there are no hidden cards
+or future observations. Existing event-only history remains intact but cannot
+provide retroactive replays. Completion flags distinguish complete/partial hands.
+
+The replay viewer renders observations directly, independently of `Game`. Its
+own background worker compares original and edited scenarios using saved profile
+evidence and deterministic seeds. A revision token discards results after edits
+or timeline navigation. SQLite reads/writes remain on the Tk thread. Scenarios
+persist only after successful calculation. Reset deletes only the scenario.
+Manual state corrections preserve board length/actor and disable stale raise
+bounds. Bot pause state is restored when review closes.
 
 ## Future work
 
-1. Per-pot analysis, richer transition validation, range editing and replay.
+1. Richer transition validation, multi-sizing side-pot raises and replay export.
 2. Calibrated opponent likelihoods and held-out policy benchmarks.
 3. Better baseline strategies and continuation betting models.
 4. Authorized video files and independently calibrated skins.
