@@ -20,6 +20,23 @@ def public_ranks(board):
     return sorted(evaluate(list(hole) + list(board)) for hole in combinations(deck, 2))
 
 
+@lru_cache(maxsize=128)
+def card_table(hero, board, holes):
+    """Shared immutable rank data; blocked hands have zero chance mass."""
+    reference = public_ranks(board)
+    own = evaluate(list(hero) + list(board))
+    outcomes, strengths = [], []
+    for hole in holes:
+        if set(hole).intersection(board):
+            outcomes.append(0)
+            strengths.append(0.)
+            continue
+        rank = evaluate(list(hole) + list(board))
+        outcomes.append(0 if own > rank else 1 if own == rank else 2)
+        strengths.append((bisect_left(reference, rank) + bisect_right(reference, rank)) / (2*len(reference)))
+    return tuple(outcomes), tuple(strengths)
+
+
 @dataclass(frozen=True)
 class Move:
     code: str
@@ -67,9 +84,12 @@ class RiverResult:
 
 
 class RiverTree:
+    street = "R"
+    board_length = 5
+
     def __init__(self, o, profile, events=(), ranges=None, model=None, aggression_cap=3, node_budget=5000):
-        if o.street != "R" or o.actor != 0 or len(o.board) != 5:
-            raise UnsupportedRiver("River tree requires your river decision")
+        if o.street != self.street or o.actor != 0 or len(o.board) != self.board_length:
+            raise UnsupportedRiver(f"{self.street} tree requires your matching street decision")
         live = [i for i, s in enumerate(o.seats) if s.status != "F"]
         if len(live) != 2 or 0 not in live:
             raise UnsupportedRiver("River tree requires exactly two live players")
@@ -82,22 +102,35 @@ class RiverTree:
         self.contexts = {}
         self.root = self._initial(events)
         explicit = ranges is not None and ranges.get(self.villain) is not None
-        prior_events = events if explicit else tuple(e for e in events if e.street != "R")
+        prior_events = events if explicit else tuple(e for e in events if e.street != self.street)
         _, distributions = distributions_for(o.hole, o.board, [profile], prior_events, ranges)
         dist = distributions[0]
         self.holes = tuple(dist.holes)
         weights = [dist.cumulative[0]] + [b-a for a, b in zip(dist.cumulative, dist.cumulative[1:])]
         self.belief = tuple(w/dist.total for w in weights)
-        ranks = [evaluate(list(hole) + list(o.board)) for hole in self.holes]
-        own = evaluate(list(o.hole) + list(o.board))
-        self.outcomes = tuple(0 if own > r else 1 if own == r else 2 for r in ranks)
-        reference = public_ranks(tuple(o.board))
-        self.strengths = tuple((bisect_left(reference, r) + bisect_right(reference, r)) / (2*len(reference)) for r in ranks)
+        self.outcomes, self.strengths = card_table(tuple(o.hole), tuple(o.board), self.holes)
         if not explicit:
             self.belief = self.condition_observed(events)
         self.folded_seats = {i for i, s in enumerate(o.seats) if s.status == "F"}
         self.baseline_refund = sum(p.amount for p in build_pots(self.root.invested, self.folded_seats)
                                    if p.refund and p.contributors == (0,))
+
+    @classmethod
+    def continuation(cls, turn, card):
+        """Prepare a river solver whose EV remains relative to the turn root.
+
+        Betting state and card-conditioned beliefs are supplied to solve().
+        Root bounds are never reused for a new street.
+        """
+        child = object.__new__(cls)
+        child.o = replace(turn.o, street="R", board=turn.o.board + (card,))
+        child.villain, child.model = turn.villain, turn.model
+        child.holes, child.root = turn.holes, turn.root
+        child.folded_seats, child.baseline_refund = turn.folded_seats, turn.baseline_refund
+        child.cap, child.budget, child.nodes = turn.river_cap, turn.budget, 0
+        child.memo, child.likelihood_cache, child.outcome_cache, child.contexts = {}, {}, {}, {}
+        child.outcomes, child.strengths = card_table(tuple(child.o.hole), tuple(child.o.board), child.holes)
+        return child
 
     def condition_observed(self, events):
         """Condition automatic ranges on actual river decisions using this model.
@@ -105,7 +138,7 @@ class RiverTree:
         Explicit user ranges already describe the current range and bypass
         this step. Preflop/flop/turn inference retains the existing heuristic.
         """
-        river = [e for e in events if e.street == "R"]
+        river = [e for e in events if e.street == self.street]
         pot = self.o.pot - sum(e.amount for e in river)
         bets, acted, last = [0]*6, {}, 10
         active = {i for i, s in enumerate(self.o.seats) if s.status != "F"} | {e.seat for e in river if e.action == "F"}
@@ -118,7 +151,7 @@ class RiverTree:
                 reopened = e.seat not in acted or price-acted[e.seat] >= last
                 can_raise = (reopened and bets[e.seat]+remaining[e.seat] > price and
                              any(remaining[i] > 0 for i in active if i != e.seat))
-                posterior = self.model.posterior("R", owed, pot)
+                posterior = self.model.posterior(self.street, owed, pot)
                 likelihood = tuple(response_probabilities(posterior, s, can_raise).get(e.action, 0) for s in self.strengths)
                 raw = tuple(w*p for w, p in zip(belief, likelihood))
                 total = math.fsum(raw)
@@ -137,7 +170,7 @@ class RiverTree:
     def _initial(self, events):
         seats = (0, self.villain)
         bets, acted, pending, last = [0, 0], [-1, -1], {0, 1}, 10
-        river_events = [e for e in events if e.street == "R"]
+        river_events = [e for e in events if e.street == self.street]
         for e in river_events:
             if e.seat not in seats:
                 continue
@@ -239,7 +272,7 @@ class RiverTree:
         # Use the nominal price, matching context extraction from observed
         # event prefixes; legal short calls are clipped separately by step().
         owed = max(state.bets)-state.bets[1]
-        posterior = model.posterior("R", owed, sum(state.invested))
+        posterior = model.posterior(self.street, owed, sum(state.invested))
         raises = [m for m in moves if m.code == "R"]
         key = (posterior.alpha, bool(raises), tuple(moves))
         if model is self.model:
