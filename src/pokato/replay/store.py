@@ -5,6 +5,7 @@ from pokato.core.cards import validate_cards
 from pokato.core.game import Event
 from pokato.vision.reader import Observation, Seat
 from pokato.analysis.history import Profile
+from pokato.analysis.bayes import model_from_dict
 
 
 def validate_observation(o):
@@ -51,6 +52,7 @@ class Snapshot:
     observation: Observation
     events: tuple
     profiles: tuple
+    models: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -77,14 +79,17 @@ class Archive:
                 session TEXT NOT NULL, hand INTEGER NOT NULL, seq INTEGER NOT NULL,
                 payload TEXT NOT NULL, PRIMARY KEY(session, hand, seq))""")
 
-    def save(self, session, observation, events, profiles):
+    def save(self, session, observation, events, profiles, models=()):
         validate_observation(observation)
         if len(profiles) != 6 or [p.seat for p in profiles] != list(range(6)):
             raise ValueError("Snapshot needs six ordered profile snapshots")
         if [e.seq for e in events] != list(range(1, len(events) + 1)):
             raise ValueError("Cannot archive an incomplete event history")
-        payload = json.dumps({"version": 1, "observation": observation_dict(observation),
-                              "events": [asdict(e) for e in events], "profiles": [asdict(p) for p in profiles]}, allow_nan=False)
+        if models and (len(models) != 6 or [m.seat for m in models] != list(range(6))):
+            raise ValueError("Need six ordered session models")
+        payload = json.dumps({"version": 2, "observation": observation_dict(observation),
+                              "events": [asdict(e) for e in events], "profiles": [asdict(p) for p in profiles],
+                              "models": [asdict(m) for m in models]}, allow_nan=False)
         with self.connection:
             self.connection.execute("INSERT OR IGNORE INTO replay_hands(session, hand) VALUES (?,?)", (session, observation.hand))
             self.connection.execute("UPDATE replay_hands SET completed=MAX(completed, ?) WHERE session=? AND hand=?",
@@ -104,11 +109,12 @@ class Archive:
         snapshots = []
         for (payload,) in rows:
             data = json.loads(payload)
-            if data["version"] != 1:
+            if data["version"] not in (1, 2):
                 raise ValueError("Unsupported replay version")
             snapshots.append(Snapshot(observation_from_dict(data["observation"]),
                                       tuple(Event(**e) for e in data["events"]),
-                                      tuple(Profile(**p) for p in data["profiles"])))
+                                      tuple(Profile(**p) for p in data["profiles"]),
+                                      tuple(model_from_dict(m) for m in data.get("models", ()))))
         return snapshots
 
     def scenario(self, session, hand, seq):
