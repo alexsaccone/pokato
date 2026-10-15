@@ -1,5 +1,5 @@
 import unittest
-from PIL import ImageDraw
+from PIL import Image, ImageDraw
 from pokato.core.game import Game
 from pokato.simulator.bots import choose_action
 from pokato.simulator.render import render
@@ -33,6 +33,19 @@ class VisionTests(unittest.TestCase):
             reader.read(frame)
         with self.assertRaises(ReadError):
             reader.read(render(g).resize((490, 345)))
+
+    def test_resized_table_preserves_observation(self):
+        g, reader = Game(), Reader()
+        g.new_hand()
+        frame = render(g)
+        expected = reader.read(frame)
+        for size in ((981, 801), (1127, 920), (1470, 1200), (1960, 1600)):
+            with self.subTest(size=size):
+                observed = reader.read(frame.resize(size, Image.Resampling.NEAREST))
+                self.assertEqual(observed.hole, expected.hole)
+                self.assertEqual(observed.seats, expected.seats)
+                self.assertEqual(observed.events, expected.events)
+                self.assertEqual(observed.pot, expected.pot)
 
     def test_missed_actions_require_new_hand(self):
         g, reader, tracker = Game(), Reader(), Tracker()

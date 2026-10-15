@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from PIL import ImageChops, ImageStat
+from PIL import Image, ImageChops, ImageStat
 from pokato.core.cards import DECK, validate_cards
 from pokato.core.game import Event
 from pokato.simulator.layout import FIELDS, CELL_W, CELL_H, WIDTH, HEIGHT, ALPHABET, glyph
@@ -37,7 +37,7 @@ class Observation:
 class Reader:
     """Fixed-layout glyph recognition for our own V1 practice table.
 
-    Not general OCR. Unfamiliar fonts, scaled video, occlusion, or corrupt
+    Not general OCR. Unfamiliar fonts, distorted video, occlusion, or corrupt
     fields fail closed. The numeric confidence measures template similarity,
     not a calibrated probability of correctness.
     """
@@ -46,9 +46,12 @@ class Reader:
         self.exact = {im.tobytes(): c for c, im in self.templates.items()}
 
     def read(self, frame):
-        if frame.size != (WIDTH, HEIGHT):
-            raise ReadError("Unsupported frame size; practice table must be at 100% scale")
+        size = frame.size
+        if size[0] < WIDTH or size[1] < HEIGHT or abs(size[0] / WIDTH - size[1] / HEIGHT) > 0.003:
+            raise ReadError("Unsupported table size or aspect ratio")
         frame = frame.convert("RGB")
+        if size != (WIDTH, HEIGHT):
+            frame = frame.resize((WIDTH, HEIGHT), Image.Resampling.NEAREST)
         confidence = 1.0
         values = {}
         for key, field in FIELDS.items():
@@ -62,7 +65,7 @@ class Reader:
                                     for c, template in self.templates.items())
                     error, char = scores[0]
                     if error > 0.008 or scores[1][0] - error < 0.008:
-                        raise ReadError(f"Unreadable {key}; uncover the table and restore its original size")
+                        raise ReadError(f"Unreadable {key}; restore a clear, undistorted table")
                     confidence = min(confidence, 1 - error)
                 chars.append(char)
             values[key] = "".join(chars).strip()
