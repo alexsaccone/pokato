@@ -70,7 +70,7 @@ def label_for(kind, value):
             raise ValueError("Rank label must be 2–9, T, J, Q, K, A or empty")
     elif kind == "suit":
         value = normalize_notation(value).lower()
-        if value != "empty" and value not in SUITS:
+        if value != "empty" and (len(value) != 1 or value not in SUITS):
             raise ValueError("Suit label must be ♣ ♦ ♥ ♠ or empty")
     elif kind == "flag":
         value = {"true": "yes", "false": "no", "1": "yes", "0": "no"}.get(value.lower(), value.lower())
@@ -217,11 +217,13 @@ class CalibratedReader:
             label_for("number_state", label)
             example = Example.create(replace(region, kind="number_state", group=region.name), label, region.crop(image))
             compiled(example, layout.contrast)
+            replace(layout, examples=[*layout.examples, example]).validate()
             layout.examples.append(example)
             return example
         label = label_for(region.kind, value)
         example = Example.create(region, label, region.crop(image))
         compiled(example, layout.contrast)  # Validate segmentation before saving.
+        replace(layout, examples=[*layout.examples, example]).validate()
         layout.examples.append(example)
         return example
 

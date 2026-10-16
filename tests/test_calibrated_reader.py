@@ -87,6 +87,18 @@ class CalibratedTests(unittest.TestCase):
         ImageDraw.Draw(blank).rectangle(sb.pixels(blank.size), fill="#182535")
         self.assertIsNone(reader.field(sb, blank).value)
 
+    def test_invalid_example_labels_do_not_mutate_saved_calibration(self):
+        skin = SyntheticSkin()
+        layout = skin.train()
+        game = Game()
+        game.new_hand()
+        image = skin.render(from_game(game, 0))
+        before = len(layout.examples)
+        for name, label in (("hole0.suit", ""), ("hole0.suit", "cd"), ("seat0.bet", "=10")):
+            with self.subTest(name=name, label=label), self.assertRaises(ValueError):
+                CalibratedReader.teach(layout, layout.regions[name], image, label)
+        self.assertEqual(len(layout.examples), before)
+
 
 if __name__ == "__main__":
     unittest.main()

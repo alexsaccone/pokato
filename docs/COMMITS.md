@@ -1,6 +1,6 @@
-# Six coherent commits
+# Component commit history
 
-The implementation was committed locally in the six groups below. These commands
+Milestone 1 was committed locally in the six groups below. These commands
 record how the history was built; they do not need to be rerun on the completed
 branch. When reproducing the sequence, run from the repository root in PowerShell
 and inspect each staged diff. Nothing here pushes to GitHub.
@@ -164,3 +164,32 @@ Validation: `scripts/validate.py`, `scripts/turn_smoke.py`,
 with `scripts/benchmark_turn.py --draws 24 --hands 32 --reference-hands 64 --seed 31`.
 The executable supports `--self-test-turn <absolute-report-path>`; no separately
 named milestone executable is created. Binary/report artifacts remain ignored.
+
+## Milestone 5: client-independent table reading
+
+Four dependency-ordered local commits:
+
+1. `9aa13b3 feat(ingest): add client-independent frame sources and saved layouts`
+   — image/animated image/video/window/region inputs, bounded RGB conversion,
+   normalized regions, portable JSON profiles and source/roundtrip checks.
+2. `6c682eb feat(vision): recognize calibrated fields and reconcile visible actions`
+   — taught card/number/marker templates, unknown/ambiguous-field rejection,
+   immutable snapshots, action/chip-ledger inference and independent synthetic skins.
+3. `6151f39 feat(ui): add table calibration studio and recognition HUD`
+   — one-app mode switching, ROI editor, example training, explicit per-field zero
+   states, crop inspector, floating HUD, input freshness, provenance/export and
+   actual-window diagnostics with a packaged reader self-test.
+4. `test: validate and package milestone 5 table reading`
+   — held-out synthetic benchmark, heads-up/raise/stabilization validation,
+   calibration error handling, version 0.5, reader guide and one updated executable
+   bundling image/video dependencies and their metadata/license notices.
+
+Validation: `scripts/validate.py`, `scripts/reader_smoke.py`,
+`scripts/readability_smoke.py`, and the packaged reader/turn self-tests.
+`scripts/benchmark_reader.py --frames 12 --seed 31` reproduces the synthetic
+accuracy/rejection and latency report. `docs/READER.md` distinguishes arbitrary
+image ingestion from per-skin calibrated recognition and documents unsupported
+history conventions. External recommendations remain withheld.
+
+The app remains `dist\Pokato.exe`. Binaries, profiles and QA reports under ignored
+artifact directories stay outside these commits. No push to GitHub is performed.

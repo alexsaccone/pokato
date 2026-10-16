@@ -5,8 +5,11 @@ Play one six-seat table against five simulated opponents. A floating HUD reads
 the table's **actual rendered pixels**, reconstructs actions, tracks observed
 opponent behavior, and displays range equity, pot odds and estimated action EV.
 
-This milestone runs entirely locally. ClubWPT Gold and HD Poker adapters are
-not included.
+Milestone 5 adds a **client-independent table reader**: open images or recordings,
+or select a Windows window or screen region, then calibrate its visual layout.
+The recognition HUD shows cards, chips, positions and inferred actions. Each
+client skin needs its own regions/examples; ClubWPT Gold and HD Poker presets
+have not been validated. External-mode recommendations remain withheld.
 
 ![Practice table](docs/table-preview.png)
 
@@ -15,11 +18,11 @@ not included.
 ## Run on Windows
 
 For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python,
-Tk, Pillow, and the application; no installation or console window is required.
+Tk, Pillow, OpenCV/NumPy, and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
 This is the one app for all features, including Bayesian turn/river analysis and hand
-review. Future builds update this same file; close Pokato before rebuilding.
+review and the table reader. Future builds update this same file; close Pokato before rebuilding.
 
 To run from source:
 
@@ -32,8 +35,9 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pokato
 ```
 
-No API key, server, account, or GPU is required. Pillow is the only third-party
-runtime dependency. The standard Windows Python installer includes Tk.
+No API key, server, account, or GPU is required. Pillow handles images and screen
+capture; headless OpenCV with NumPy decodes local recordings. The standard
+Windows Python installer includes Tk.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pokato --seed 42 --samples 800 --database .pokato\practice.sqlite3
@@ -44,6 +48,7 @@ runtime dependency. The standard Windows Python installer includes Tk.
 - **Deal next hand:** available after the hand completes.
 - **Pause bots:** pauses opponents while observation continues.
 - **Review hands:** browse saved snapshots, edit ranges and compare per-pot EVs.
+- **Read table:** open the calibration studio; practice bots and coaching pause until it closes.
 - **H:** reopen the HUD after closing it.
 - Close the practice-table window to exit both windows.
 
@@ -115,7 +120,7 @@ Opponent statistics persist in `%USERPROFILE%\.pokato\practice.sqlite3`, unless
 older sessions remain available for replay. Identities refer to fixed practice characters. VPIP/PFR
 denominators count hands with an observed preflop decision; fold-versus-bet
 counts actual facing-bet decisions. Raw counts are shown, with smoothed rates
-used internally. The normal app retains no screenshots or video. Delete the
+used internally. Practice mode retains no screenshots or video. Delete the
 database while the app is closed to reset statistics and saved hands.
 
 ## Saved-hand review (milestone 2)
@@ -223,6 +228,48 @@ seconds to calculate; the UI stays available and rejects results from stale turn
 The same `dist\Pokato.exe` supports `--self-test-turn <absolute-report-path>`.
 It also retains the earlier self-test modes and hand-review features.
 
+## Client-independent table reader (milestone 5)
+
+![Calibration studio](docs/reader-preview.png)
+
+[Preview the recognition HUD](docs/reader-hud-preview.png).
+
+Open **Read table → Demo** to try calibration, the field inspector, inferred
+actions and the floating recognition HUD on a separate synthetic skin. Then
+open **Images…**, **Video…**, **Window…** or **Screen region…** for your own input.
+Draw each region, select its field and click **Set region**. Enter its visible
+label and click **Teach example**. **Save layout…** stores portable JSON with
+normalized regions and labeled crops. See the [calibration guide](docs/READER.md)
+for required fields, blank bets, chip units, distinct fonts and troubleshooting.
+
+The input layer accepts arbitrary client imagery without a site-specific adapter.
+Recognition supports user-calibrated Hold'em layouts with 2–10 seats. It requires
+legible, separated amount characters and examples from the actual skin; it cannot
+recognize every client automatically. Resize in the same proportions, or create
+a new layout after changing the table arrangement, font, theme or browser chrome.
+
+**Show HUD** displays recognized cards, the pot, dealer, actor and history quality.
+Live capture requires two consecutive matching readings. The tracker starts at
+an observed blind-only deal and rejects inconsistent actions or chip totals.
+“Reconciled” means captured frames agree, not that no unseen action was missed.
+External recommendations and Bayesian player updates remain disabled in this
+milestone; the existing practice coach remains available when the reader closes.
+
+**Export readings…** saves the last 1,000 readings, similarity scores, issues,
+manual provenance and inferred actions. Reconciled six-seat histories also export
+a normalized observation for later analysis integration. Full frames are saved
+only through **Save frame…**. No image upload or account connection occurs.
+
+```powershell
+.\.venv\Scripts\python.exe -m pokato --reader
+.\.venv\Scripts\python.exe -m pokato --reader --image C:\captures\table.png --layout C:\captures\layout.json
+.\.venv\Scripts\python.exe scripts/reader_smoke.py
+.\.venv\Scripts\python.exe scripts/benchmark_reader.py --frames 12 --seed 31
+```
+
+The same `dist\Pokato.exe` accepts `--reader`, `--image`, `--layout` and
+`--self-test-reader <absolute-report-path>`. There is no second application.
+
 ## Verify
 
 ```powershell
@@ -233,6 +280,7 @@ It also retains the earlier self-test modes and hand-review features.
 .\.venv\Scripts\python.exe scripts/replay_smoke.py
 .\.venv\Scripts\python.exe scripts/river_smoke.py
 .\.venv\Scripts\python.exe scripts/turn_smoke.py
+.\.venv\Scripts\python.exe scripts/reader_smoke.py
 ```
 
 Unit tests need no display. The smoke check opens and closes the local UI,
@@ -251,6 +299,10 @@ The replay check verifies captured-hand browsing, saved range sensitivity,
 invalid-correction rejection, original immutability, reset and bot pause/restore.
 The turn check verifies actual-pixel capture, exact card probabilities, policy
 sensitivity, deterministic frozen replay and immediate advice/chart invalidation.
+The reader check covers calibration edits, two independent skins, image/video
+decoding, real window/region capture of its own fixture, input switching,
+manual provenance, normalized export and stale-state clearing. Reader accuracy
+benchmarks use synthetic skins; no real-client accuracy claim is made.
 Numerical tests independently enumerate five-card hands and distribute chips
 one at a time; random fixtures compare these references with production hand
 ranks and payouts. A turn-runout fixture checks sampled payouts against exact
@@ -282,7 +334,7 @@ report includes whether it ran from the frozen executable and the checks passed.
 
 ## Commit component by component
 
-The implementation is organized into [six component commits](docs/COMMITS.md).
+The implementation is organized into [milestone component commits](docs/COMMITS.md).
 The guide records their staging commands, validation commands, and commit
 messages. The commits are local; pushing to GitHub is a separate step.
 

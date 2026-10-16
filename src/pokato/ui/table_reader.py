@@ -227,10 +227,13 @@ class ReaderWindow:
                 self.detail.configure(text=f"{name} · raw {raw}\nSimilarity {found.score:.3f} · "
                                       f"margin {found.margin:.3f}\n{found.issue or ('Manual correction' if found.manual else 'Automatic read')}")
         if self.frame and region:
-            crop = region.crop(self.frame.image)
-            factor = min(330/crop.width, 72/crop.height)
-            self.crop_photo = ImageTk.PhotoImage(crop.resize((max(1, round(crop.width*factor)), max(1, round(crop.height*factor))), Image.Resampling.NEAREST))
-            self.crop_label.configure(image=self.crop_photo)
+            try:
+                crop = region.crop(self.frame.image)
+                factor = min(330/crop.width, 72/crop.height)
+                self.crop_photo = ImageTk.PhotoImage(crop.resize((max(1, round(crop.width*factor)), max(1, round(crop.height*factor))), Image.Resampling.NEAREST))
+                self.crop_label.configure(image=self.crop_photo)
+            except ValueError:
+                self.crop_label.configure(image="")
         else:
             self.crop_label.configure(image="")
         self.draw_preview()
@@ -516,11 +519,13 @@ class ReaderWindow:
                 # user's selected area. Later streaming requires moving or
                 # minimizing the studio/HUD outside that area.
                 self.screen_restore = restore
-            self.window.after(250, accept)
+            self.root.after(250, lambda: None if self.closed else accept())
         canvas.bind("<ButtonPress-1>", press)
         canvas.bind("<B1-Motion>", move)
         canvas.bind("<ButtonRelease-1>", lambda e: self.safe(lambda: release(e)))
         overlay.bind("<Escape>", lambda e: cancel())
+        overlay.bind("<Alt-F4>", lambda e: cancel())
+        overlay.protocol("WM_DELETE_WINDOW", cancel)
         overlay.focus_force()
 
     def next_frame(self):

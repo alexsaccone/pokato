@@ -16,11 +16,29 @@ core.Game -> simulator.render -> Tk practice window
                                   floating HUD
 ```
 
+Milestone 5 adds a second pixel pipeline inside the same app:
+
+```text
+local images / video / selected HWND / selected screen region
+                           |
+                        Frame
+                           | normalized regions + taught examples (Layout)
+                   CalibratedReader
+                           | fields, similarity, issues, TableSnapshot
+                      TableHistory
+                           | inferred events, reconciliation quality
+                 calibration studio / recognition HUD / JSON export
+```
+
+This pipeline is isolated from practice analysis and Bayesian evidence. A
+reconciled six-seat sequence can export `Observation`; external recommendations
+remain withheld. See [reader calibration and limitations](READER.md).
+
 ## Component boundaries
 
 `app.py` operates the simulator controls and composes the observation pipeline.
 The coach receives only immutable observations, observed actions and profile
-snapshots. Vision/analysis never receive the simulator deck or opponents' cards.
+snapshots. Production recognizers/analysis never receive the simulator deck or opponents' cards.
 Smoke tests compare observations against privileged simulator truth only for QA.
 
 | Component | Responsibility |
@@ -28,6 +46,9 @@ Smoke tests compare observations against privileged simulator truth only for QA.
 | `core` | Best-five hand ranks, betting legality, turn order, chip accounting and settlement |
 | `simulator` | Fixed visible skin, ordinary readable text fields and simple opponents |
 | `vision` | Capture, glyph recognition, immutable observations and reconstructed event ledger |
+| `vision/sources.py`, `layouts.py` | Generic local inputs and portable normalized regions/labeled PNG examples |
+| `vision/calibrated.py`, `table_history.py` | Visual templates, amount OCR, validated snapshots and conservative action inference |
+| `ui/table_reader.py` | Calibration, inspection, background reads, recognition HUD and explicit export |
 | `analysis` | Session Bayesian statistics, weighted ranges, pot equity, turn/river trees and policy sensitivity |
 | `replay` | Append-only observed snapshots, saved scenarios and public-state rendering |
 | `ui/replay.py` | Timeline browsing, range sensitivity, corrections and per-pot results |
@@ -35,7 +56,7 @@ Smoke tests compare observations against privileged simulator truth only for QA.
 
 ## Recognition and freshness
 
-The renderer and recognizer share layout/font calibration, not game state.
+The practice renderer and practice recognizer share layout/font calibration, not game state.
 Visible text is read from pixels; there are no encoded pixels, metadata, or
 hidden-state API shortcuts. This is deliberately fixed-layout template
 recognition, not general OCR suitable for arbitrary poker clients.
@@ -59,9 +80,9 @@ Tk runs on the main thread; numerical work runs on one worker thread. A
 hand/street/actor/event-count key prevents obsolete results from being displayed.
 Local actions clear advice immediately, before capture catches up.
 
-Both windows have custom draggable headers, edge/corner resize targets and
+Both practice windows have custom draggable headers, edge/corner resize targets and
 maximize/restore controls. The HUD is 94% opaque by default, adjustable to 88%
-or 100%; its content reflows into two columns when widened. Native Windows calls
+or 100%; its content reflows into two columns when widened. UI control Windows calls
 are scoped to the app's own windows for minimize, taskbar presence, and monitor
 work-area bounds. There is no standard title bar or native scrollbar.
 
@@ -74,6 +95,16 @@ Only optional history/assumptions scroll. Manual text zoom is saved under the
 user profile and can expand the window when necessary; Reset restores the
 compact footprint. Screen-size checks cover 768p, 1080p and 4K, including full
 river boards and three candidate EVs, without changing OS DPI settings.
+
+The generic reader shares no font/layout renderer with its recognition engine.
+`vision/fixtures.py` provides two explicitly synthetic QA/demo skins; Game truth
+creates public fixture pixels and compares expected results only. The engine
+receives only pixels, calibrated regions and labeled crops. Numeric zero aliases
+are explicitly taught per field. Unknown values are never defaulted to zero.
+Capture/recognition runs on one worker; Tk owns display and action history. Deep
+copied profiles plus generation tokens reject jobs after source/calibration edits.
+Decoder release queues behind pending reads. Profiles are bounded, versioned JSON
+with image data; full source images remain separate. Export is explicit.
 
 ## Opponent modeling
 
@@ -156,8 +187,10 @@ bounds. Bot pause state is restored when review closes.
 1. Richer transition validation, multi-sizing side-pot raises and replay export.
 2. Calibrated opponent likelihoods and held-out policy benchmarks.
 3. Calibrated population priors, richer size policies, flop/multiway continuation models and finer policy sensitivity.
-4. Authorized video files and independently calibrated skins.
-5. External adapters after platform-specific permission and policy review.
+4. Held-out recognition datasets and calibration presets for actual client skins.
+5. Complete-hand external replay/model integration, robust settlement, seat changes,
+   rake/ante conventions and data-quality gating.
 
-No external-client connection, account access, external automated actions,
-process discovery, or network service is included.
+No external-client account connection, external automated actions, process-memory
+inspection or network service is included. Capture lists visible window titles
+and reads only the user's selected window or desktop rectangle.
