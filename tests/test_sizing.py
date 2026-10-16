@@ -44,3 +44,15 @@ class SizingTests(unittest.TestCase):
             for invalid in ('{"hud_zoom": "large"}', '{"hud_zoom": 99}', '[]', 'broken'):
                 path.write_text(invalid, encoding="utf-8")
                 self.assertEqual(Preferences(path).zoom, 1)
+
+    def test_reader_and_coach_zoom_settings_preserve_each_other(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder)/"settings.json"
+            coach = Preferences(path)
+            reader = Preferences(path, key="reader_zoom")
+            coach.save(1.2)
+            reader.save(1.6)
+            self.assertEqual(Preferences(path).zoom, 1.2)
+            self.assertEqual(Preferences(path, key="reader_zoom").zoom, 1.6)
+            coach.save(1.)
+            self.assertEqual(Preferences(path, key="reader_zoom").zoom, 1.6)

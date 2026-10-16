@@ -106,6 +106,14 @@ copied profiles plus generation tokens reject jobs after source/calibration edit
 Decoder release queues behind pending reads. Profiles are bounded, versioned JSON
 with image data; full source images remain separate. Export is explicit.
 
+`ui/reader_style.py` scopes pixel fonts/styles to the reader instead of changing
+Tk's global scaling or default fonts. The studio follows display DPI; the HUD
+uses the existing compact display scale. Reader zoom persists independently in
+the shared preferences JSON, preserving coach settings. Controls wrap and move
+to compact menus on short windows; narrow views choose one panel at a time.
+Scrollable content and dialogs keep large text reachable. Zoom changes preview
+geometry only, leaving source pixels, calibrated regions and action history intact.
+
 ## Opponent modeling
 
 Milestone 3 adds [session-only Bayesian adaptation and a heads-up river tree](RIVER.md).

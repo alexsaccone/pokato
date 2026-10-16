@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 from pokato.core.cards import display_card, display_notation, SUIT_SYMBOLS
 from pokato.vision.calibrated import CalibratedReader
@@ -15,6 +15,8 @@ from pokato.vision.layouts import Layout, Region, field_choices
 from pokato.vision.sources import CaptureSource, ImageSource, VideoSource, Frame, list_windows
 from pokato.vision.table_history import TableHistory
 from .window import WindowChrome, NativeWindow, BG, TEXT, MUTED, ACCENT
+from .sizing import Display, Preferences, HudFonts, geometry
+from .reader_style import ReaderTheme, ScrollPanel
 
 
 class DemoSource:
@@ -59,6 +61,13 @@ class ReaderWindow:
         self.preview_transform = None
         self.last_delivery = 0
         self.screen_restore = None
+        self.monitor_job = None
+        self.dialogs = []
+        self.display = Display.detect(app.root) if app.watch_monitor else app.display
+        self.hud_display = self.display
+        self.preferences = Preferences(app.preferences.path or False, key="reader_zoom")
+        self.zoom = self.preferences.zoom
+        self.scale = self.display.scale*self.zoom
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pokato-reader")
         self.history = TableHistory(self.layout, 1)
         self.was_paused = app.paused
@@ -70,29 +79,47 @@ class ReaderWindow:
         app.root.withdraw()
         self.window = tk.Toplevel(self.root)
         self.window.title("Pokato · Table reader")
-        _, _, work_w, work_h = NativeWindow(self.window).work_area()
-        self.window.geometry(f"{min(1380, work_w-32)}x{min(920, work_h-32)}+16+16")
+        self.window.geometry(geometry(self.display.fit(1320*self.scale, 880*self.scale)))
+        self.theme = ReaderTheme(self.window, self.scale)
         self.window.protocol("WM_DELETE_WINDOW", self.close)
         self.window.bind("<Alt-F4>", lambda e: self.close())
         self.chrome = WindowChrome(self.window, "pokato", "TABLE READER", self.close,
-                                   minimum=(min(980, work_w-32), min(680, work_h-32)))
+                                   minimum=self.display.fit(980*self.scale, 640*self.scale)[:2], scale=self.scale*.8)
         self.status = tk.StringVar(value="Open an image or demo, then draw regions and teach visible examples.")
         self.chrome.hint.configure(textvariable=self.status)
         self.build()
         self.build_hud()
+        self.apply_scale(grow=False)
         self.refresh_profile()
+        self.bind_zoom(self.window)
+        self.window.bind("<Configure>", self.configure_window, add="+")
+        self.hud.bind("<Configure>", self.configure_window, add="+")
         self.job = self.root.after(80, self.poll)
         self.window.after_idle(self.chrome.restore)
 
     def toolbar(self, parent):
         bar = ttk.Frame(parent, padding=(5, 3))
         bar.pack(fill="x")
+        bar.bind("<Configure>", lambda e: self.wrap_buttons(bar))
+        self.toolbars.append(bar)
         return bar
 
     def button(self, parent, label, command):
-        button = ttk.Button(parent, text=label, command=lambda: self.safe(command))
-        button.pack(side="left", padx=3, pady=2)
+        button = ttk.Button(parent, text=label, width=0, command=lambda: self.safe(command))
+        button.grid(row=0, column=len(parent.winfo_children())-1, padx=3, pady=2)
         return button
+
+    def wrap_buttons(self, parent):
+        available = max(1, parent.winfo_width()-self.px(12))
+        row = column = used = 0
+        for widget in parent.winfo_children():
+            if widget.winfo_class() == "Menu":
+                continue
+            width = widget.winfo_reqwidth()+self.px(6)
+            if used and used+width > available:
+                row, column, used = row+1, 0, 0
+            widget.grid(row=row, column=column, padx=self.px(3), pady=self.px(2), sticky="w")
+            column, used = column+1, used+width
 
     def safe(self, action):
         try:
@@ -103,33 +130,70 @@ class ReaderWindow:
 
     def build(self):
         host = self.chrome.body
-        inputs = self.toolbar(host)
+        self.toolbars = []
+        self.run_label = tk.StringVar(value="Start")
+        self.compact_commands = False
+        zoom_bar = self.toolbar(host)
+        ttk.Label(zoom_bar, text="Text size").grid(row=0, column=0)
+        self.button(zoom_bar, "A−", lambda: self.set_zoom(self.zoom-.1))
+        self.zoom_label = ttk.Label(zoom_bar, text=f"{self.zoom:.0%}")
+        self.zoom_label.grid(row=0, column=2)
+        self.button(zoom_bar, "A+", lambda: self.set_zoom(self.zoom+.1))
+        self.button(zoom_bar, "Reset", lambda: self.set_zoom(1.))
+        self.inputs_toolbar = inputs = self.toolbar(host)
         for label, action in (("Images…", self.open_images), ("Video…", self.open_video),
                               ("Window…", self.choose_window), ("Screen region…", self.choose_screen),
                               ("Demo", self.open_demo), ("Next frame", self.next_frame)):
             self.button(inputs, label, action)
         self.run_button = self.button(inputs, "Start", self.toggle_run)
+        self.run_button.configure(textvariable=self.run_label)
         self.button(inputs, "Show HUD", self.show_hud)
-        profiles = self.toolbar(host)
+        self.profiles_toolbar = profiles = self.toolbar(host)
         for label, action in (("New layout", self.new_layout), ("Load layout…", self.load_layout),
                               ("Save layout…", self.save_layout), ("Settings…", self.settings),
                               ("Save frame…", self.save_frame), ("Export readings…", self.export)):
             self.button(profiles, label, action)
+        self.compact_toolbar = compact = self.toolbar(host)
+        for label, commands in (("Input", (("Images…", self.open_images), ("Video…", self.open_video),
+                                            ("Window…", self.choose_window), ("Screen region…", self.choose_screen), ("Demo", self.open_demo))),
+                                ("Layout", (("New layout", self.new_layout), ("Load layout…", self.load_layout),
+                                             ("Save layout…", self.save_layout), ("Settings…", self.settings),
+                                             ("Save frame…", self.save_frame), ("Export readings…", self.export))),
+                                ("View", (("Table & calibration", lambda: self.choose_pane("table")),
+                                           ("Readings & history", lambda: self.choose_pane("readings")),
+                                           ("Next frame", self.next_frame), ("Show HUD", self.show_hud)))):
+            menu = tk.Menu(compact, tearoff=False, font=self.theme.fonts.get(10))
+            for text, action in commands:
+                menu.add_command(label=text, command=lambda action=action: self.safe(action))
+            button = ttk.Menubutton(compact, text=label, menu=menu)
+            button.grid(row=0, column=len([w for w in compact.winfo_children() if w.winfo_class() != "Menu"])-1, padx=3)
+        self.compact_run_button = self.button(compact, "Start", self.toggle_run)
+        self.compact_run_button.configure(textvariable=self.run_label)
+        compact.pack_forget()
         self.profile_label = ttk.Label(host, padding=(9, 4), anchor="w")
         self.profile_label.pack(fill="x")
-        panes = ttk.Panedwindow(host, orient="horizontal")
+        self.pane_switch = ttk.Frame(host, padding=4)
+        self.pane_choice = tk.StringVar(value="table")
+        for text, value in (("Table & calibration", "table"), ("Readings & history", "readings")):
+            ttk.Radiobutton(self.pane_switch, text=text, variable=self.pane_choice, value=value,
+                            command=self.layout_panes).pack(side="left", padx=4)
+        self.panes = panes = ttk.Panedwindow(host, orient="horizontal")
         panes.pack(fill="both", expand=True, padx=6, pady=4)
-        visual, inspector = ttk.Frame(panes), ttk.Frame(panes, width=360)
-        panes.add(visual, weight=3)
-        panes.add(inspector, weight=2)
-        ttk.Label(visual, text="Drag a rectangle around one field, with background padding.", padding=5).pack(fill="x")
+        self.visual_panel, self.inspector_panel = ScrollPanel(panes, self.theme), ScrollPanel(panes, self.theme)
+        visual, inspector = self.visual_panel.body, self.inspector_panel.body
+        panes.add(self.visual_panel, weight=1)
+        panes.add(self.inspector_panel, weight=1)
+        self.pane_mode = None
+        self.panes.bind("<Configure>", lambda e: self.layout_panes())
+        self.preview_hint = ttk.Label(visual, text="Drag a rectangle around one field, with background padding.", padding=5)
+        self.preview_hint.pack(fill="x")
         self.canvas = tk.Canvas(visual, background="#0b0e14", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
+        self.canvas.pack(fill="x")
         self.canvas.bind("<Configure>", lambda e: self.draw_preview())
         self.canvas.bind("<ButtonPress-1>", self.begin_drag)
         self.canvas.bind("<B1-Motion>", self.drag)
         self.canvas.bind("<ButtonRelease-1>", self.end_drag)
-        editor = ttk.Frame(visual, padding=5)
+        self.editor = editor = ttk.Frame(visual, padding=5)
         editor.pack(fill="x")
         self.field = tk.StringVar(value="anchor")
         self.field_combo = ttk.Combobox(editor, textvariable=self.field, state="readonly", width=19)
@@ -150,18 +214,24 @@ class ReaderWindow:
         self.help_text = ttk.Label(editor, text="", wraplength=560, padding=3)
         self.help_text.grid(row=4, column=0, columnspan=3, sticky="ew")
         editor.columnconfigure(0, weight=1)
-        ttk.Label(inspector, text="Readings · similarity is not a probability\nDouble-click a field for a provisional correction.", padding=6).pack(fill="x")
+        self.inspector_hint = ttk.Label(inspector, text="Readings · similarity is not a probability\nDouble-click a field for a provisional correction.", padding=6)
+        self.inspector_hint.pack(fill="x")
         self.crop_label = ttk.Label(inspector, anchor="center")
         self.crop_label.pack(fill="x", pady=3)
         columns = ("value", "score", "issue")
-        self.fields = ttk.Treeview(inspector, columns=columns, show="tree headings", selectmode="browse")
+        table = ttk.Frame(inspector)
+        table.pack(fill="x", expand=True)
+        self.fields = ttk.Treeview(table, columns=columns, show="tree headings", selectmode="browse", height=9)
         self.fields.heading("#0", text="Field")
         self.fields.column("#0", width=110, minwidth=90)
         for key, label, width in (("value", "Value", 80), ("score", "Similarity", 70), ("issue", "Issue / provenance", 180)):
             self.fields.heading(key, text=label)
             self.fields.column(key, width=width, minwidth=50)
-        scroll = ttk.Scrollbar(inspector, orient="vertical", command=self.fields.yview)
+        scroll = tk.Scrollbar(table, orient="vertical", command=self.fields.yview)
         scroll.pack(side="right", fill="y")
+        horizontal = tk.Scrollbar(inspector, orient="horizontal", command=self.fields.xview)
+        horizontal.pack(fill="x")
+        self.fields.configure(xscrollcommand=horizontal.set)
         self.fields.configure(yscrollcommand=scroll.set)
         self.fields.pack(fill="both", expand=True)
         self.fields.bind("<<TreeviewSelect>>", self.tree_select)
@@ -170,38 +240,216 @@ class ReaderWindow:
         self.detail.pack(fill="x")
         self.timeline = tk.Text(inspector, height=7, wrap="word", state="disabled", font=("Segoe UI", 10))
         self.timeline.pack(fill="x", padx=4, pady=4)
-        ttk.Label(host, text="Seat 0 = you; number seats clockwise. External mode reads the table; recommendations remain withheld.", padding=6).pack(fill="x")
+        self.reader_note = ttk.Label(visual, text="Seat 0 = you; number seats clockwise. External mode reads the table; recommendations remain withheld.", padding=6)
+        self.reader_note.pack(fill="x")
+        visual.bind("<Configure>", self.wrap_visual, add="+")
+        inspector.bind("<Configure>", self.wrap_inspector, add="+")
+        self.visual_panel.canvas.bind("<Configure>", lambda e: self.fit_preview(), add="+")
+        self.visual_panel.bind_wheel()
+        self.inspector_panel.bind_wheel()
 
     def button_grid(self, parent, text, command, row, column):
-        ttk.Button(parent, text=text, command=lambda: self.safe(command)).grid(row=row, column=column, padx=3, pady=3, sticky="ew")
+        ttk.Button(parent, text=text, width=0, command=lambda: self.safe(command)).grid(row=row, column=column, padx=3, pady=3, sticky="ew")
 
     def build_hud(self):
         self.hud = tk.Toplevel(self.root)
         self.hud.title("Pokato · Recognized table")
         self.hud.attributes("-topmost", True)
-        self.hud.geometry("440x350+50+50")
+        self.hud.geometry(geometry(self.hud_display.hud_rect()))
         self.hud.protocol("WM_DELETE_WINDOW", self.hud.withdraw)
-        self.hud_chrome = WindowChrome(self.hud, "pokato", "RECOGNIZED TABLE", self.hud.withdraw, minimum=(350, 300))
-        self.hud_chrome.hint.configure(text="Keep this HUD outside the captured screen region")
-        body = self.hud_chrome.body
-        self.hud_state = tk.Label(body, text="No input selected", bg=BG, fg=ACCENT, anchor="w", font=("Segoe UI", 12, "bold"))
+        self.hud_fonts = HudFonts(self.hud, self.hud_display.compact_scale*self.zoom)
+        self.hud_chrome = WindowChrome(self.hud, "pokato", "TABLE READER", self.hud.withdraw, minimum=(350, 300))
+        self.hud_chrome.hint.pack_forget()
+        self.hud_zoom_buttons = []
+        for text, command in (("A−", lambda: self.set_zoom(self.zoom-.1)), ("A+", lambda: self.set_zoom(self.zoom+.1)), ("Reset", lambda: self.set_zoom(1.))):
+            button = tk.Button(self.hud_chrome.footer, text=text, command=command, bg=BG, fg=TEXT,
+                               activebackground="#303b48", activeforeground=TEXT, relief="flat", borderwidth=0)
+            button.pack(side="left", padx=5)
+            self.hud_zoom_buttons.append(button)
+        self.hud_scroll = ScrollPanel(self.hud_chrome.body, self.theme)
+        self.hud_scroll.canvas.configure(background=BG)
+        self.theme.style.configure(self.theme.name("Hud.TFrame"), background=BG)
+        self.hud_scroll.body.configure(style=self.theme.name("Hud.TFrame"))
+        self.hud_scroll.pack(fill="both", expand=True)
+        body = self.hud_scroll.body
+        self.hud_state = tk.Label(body, text="No input selected", bg=BG, fg=ACCENT, anchor="w", justify="left", font=self.hud_fonts.get(11, True))
         self.hud_state.pack(fill="x", padx=16, pady=8)
-        self.hud_cards = tk.Label(body, text="", bg=BG, fg=TEXT, anchor="w", justify="left", font=("Segoe UI Symbol", 19))
+        self.hud_cards = tk.Label(body, text="", bg=BG, fg=TEXT, anchor="w", justify="left", font=self.hud_fonts.get(19))
         self.hud_cards.pack(fill="x", padx=16)
-        self.hud_info = tk.Label(body, text="", bg=BG, fg=TEXT, anchor="w", justify="left", font=("Segoe UI", 11))
+        self.hud_info = tk.Label(body, text="", bg=BG, fg=TEXT, anchor="w", justify="left", font=self.hud_fonts.get(10))
         self.hud_info.pack(fill="x", padx=16, pady=8)
         self.hud_quality = tk.Label(body, text="Recognition only · recommendations withheld", bg=BG, fg=MUTED,
-                                    justify="left", anchor="w", wraplength=390, font=("Segoe UI", 10))
+                                    justify="left", anchor="w", wraplength=390, font=self.hud_fonts.get(10))
         self.hud_quality.pack(fill="x", padx=16, pady=6)
         self.hud_quality.bind("<Configure>", lambda e: self.hud_quality.configure(wraplength=max(200, e.width)))
+        self.hud_scroll.body.bind("<Configure>", self.wrap_hud, add="+")
+        self.hud_scroll.bind_wheel()
+        self.bind_zoom(self.hud)
         self.hud.withdraw()
+
+    def px(self, value):
+        return max(1, round(value*self.scale))
+
+    def bind_zoom(self, window):
+        for sequence in ("<Control-plus>", "<Control-equal>", "<Control-KP_Add>"):
+            window.bind(sequence, lambda e: self.zoom_key(.1))
+        for sequence in ("<Control-minus>", "<Control-KP_Subtract>"):
+            window.bind(sequence, lambda e: self.zoom_key(-.1))
+        window.bind("<Control-0>", lambda e: self.zoom_key(reset=True))
+        window.bind("<Control-MouseWheel>", lambda e: self.zoom_key(.1 if e.delta > 0 else -.1))
+
+    def zoom_key(self, delta=0., reset=False):
+        self.set_zoom(1. if reset else self.zoom+delta)
+        return "break"
+
+    def set_zoom(self, zoom):
+        self.preferences.save(zoom)
+        self.zoom = self.preferences.zoom
+        self.apply_scale()
+
+    def apply_scale(self, grow=True):
+        self.scale = self.display.scale*self.zoom
+        self.theme.set_scale(self.scale)
+        self.theme.apply(self.chrome.body)
+        for dialog in self.dialogs:
+            if dialog.winfo_exists():
+                self.theme.apply(dialog)
+        self.chrome.set_scale(self.scale*.8)
+        self.chrome.hint.configure(fg=MUTED)
+        self.zoom_label.configure(text=f"{self.zoom:.0%}")
+        self.profile_label.configure(font=self.theme.fonts.get(9))
+        minimum = self.display.fit(980*self.scale, 640*self.scale)[:2]
+        self.chrome.minimum = minimum
+        self.window.minsize(*minimum)
+        if grow and not self.chrome.maximized:
+            self.window.geometry(geometry(self.display.fit(max(self.window.winfo_width(), 1320*self.scale),
+                max(self.window.winfo_height(), 880*self.scale), self.window.winfo_x(), self.window.winfo_y())))
+        for key, title, width in (("#0", "Field", 125), ("value", "Value", 100),
+                                  ("score", "Similarity", 100), ("issue", "Issue / provenance", 200)):
+            size = max(self.px(width), self.theme.fonts.get(10, True).measure(title)+self.px(16))
+            self.fields.column(key, width=size, minwidth=size, stretch=key == "issue")
+        hud_scale = self.hud_display.compact_scale*self.zoom
+        self.hud_fonts.set_scale(hud_scale)
+        self.hud_chrome.set_scale(hud_scale*.8)
+        self.hud_chrome.hint.pack_forget()
+        self.hud_chrome.footer.configure(height=round(42*hud_scale))
+        for button in self.hud_zoom_buttons:
+            button.configure(font=self.hud_fonts.get(9), padx=round(8*hud_scale), pady=round(3*hud_scale))
+        for label in (self.hud_state, self.hud_cards, self.hud_info, self.hud_quality):
+            label.pack_configure(padx=round(14*hud_scale), pady=round(5*hud_scale))
+        hud_minimum = self.hud_display.fit(500*hud_scale, 340*hud_scale)[:2]
+        self.hud_chrome.minimum = hud_minimum
+        self.hud.minsize(*hud_minimum)
+        self.hud_scroll.scroll.configure(width=max(16, round(16*hud_scale)))
+        if grow and not self.hud_chrome.maximized:
+            width, height, _, _ = self.hud_display.hud_rect()
+            self.hud.geometry(geometry(self.hud_display.fit(max(self.hud.winfo_width(), width, hud_minimum[0]),
+                max(self.hud.winfo_height(), height, hud_minimum[1]), self.hud.winfo_x(), self.hud.winfo_y())))
+        for toolbar in self.toolbars:
+            self.wrap_buttons(toolbar)
+        self.layout_commands()
+        self.layout_panes()
+        self.fit_preview()
+        if self.frame:
+            self.draw_crop()
+            self.draw_preview()
+
+    def configure_window(self, event):
+        if event.widget not in (self.window, self.hud) or self.closed:
+            return
+        if event.widget == self.window:
+            self.profile_label.configure(wraplength=max(100, event.width-self.px(20)))
+            self.layout_commands()
+        if self.monitor_job:
+            self.root.after_cancel(self.monitor_job)
+        self.monitor_job = self.root.after(250, self.refresh_monitor)
+
+    def refresh_monitor(self):
+        self.monitor_job = None
+        if self.closed:
+            return
+        display = Display.detect(self.window) if self.app.watch_monitor else self.app.display
+        hud_display = Display.detect(self.hud) if self.app.watch_monitor else self.app.display
+        changed = display.scale != self.display.scale or hud_display.compact_scale != self.hud_display.compact_scale
+        self.display, self.hud_display = display, hud_display
+        if changed:
+            self.apply_scale(grow=False)
+
+    def layout_panes(self):
+        width = self.panes.winfo_width()
+        if width <= 1:
+            return
+        wide = width >= self.px(1100)
+        mode = "both" if wide else self.pane_choice.get()
+        if mode != self.pane_mode:
+            for pane in self.panes.panes():
+                self.panes.forget(pane)
+            if wide:
+                self.pane_switch.pack_forget()
+                self.panes.add(self.visual_panel, weight=1)
+                self.panes.add(self.inspector_panel, weight=1)
+            else:
+                if not self.compact_commands:
+                    self.pane_switch.pack(fill="x", before=self.panes)
+                self.panes.add(self.visual_panel if mode == "table" else self.inspector_panel, weight=1)
+            self.pane_mode = mode
+
+    def layout_commands(self):
+        compact = self.window.winfo_height()/self.scale < 700
+        self.compact_commands = compact
+        if compact:
+            self.inputs_toolbar.pack_forget()
+            self.profiles_toolbar.pack_forget()
+            self.compact_toolbar.pack(fill="x", before=self.profile_label)
+            self.pane_switch.pack_forget()
+        else:
+            self.compact_toolbar.pack_forget()
+            self.inputs_toolbar.pack(fill="x", before=self.profile_label)
+            self.profiles_toolbar.pack(fill="x", before=self.profile_label)
+            if self.pane_mode not in (None, "both"):
+                self.pane_switch.pack(fill="x", before=self.panes)
+        self.update_profile_label()
+
+    def choose_pane(self, name):
+        self.pane_choice.set(name)
+        self.layout_panes()
+
+    def update_profile_label(self):
+        detail = (f"{self.layout.seat_count} seats · {len(self.layout.regions)} regions · "
+                  f"{len(self.layout.examples)} examples")
+        self.profile_label.configure(text=detail if self.compact_commands else
+                                     f"{self.layout.name} · unit {self.layout.chip_unit} · {detail}")
+
+    def wrap_visual(self, event):
+        width = max(100, event.width-self.px(20))
+        for label in (self.preview_hint, self.help_text, self.reader_note):
+            label.configure(wraplength=width)
+        self.fit_preview()
+
+    def wrap_inspector(self, event):
+        width = max(100, event.width-self.px(20))
+        self.inspector_hint.configure(wraplength=width)
+        self.detail.configure(wraplength=width)
+
+    def wrap_hud(self, event):
+        width = max(100, event.width-round(34*self.hud_fonts.scale))
+        for label in (self.hud_state, self.hud_cards, self.hud_info, self.hud_quality):
+            label.configure(wraplength=width)
+
+    def fit_preview(self):
+        if not hasattr(self, "editor"):
+            return
+        available = self.visual_panel.canvas.winfo_height()
+        others = self.editor.winfo_reqheight()+self.preview_hint.winfo_reqheight()+self.reader_note.winfo_reqheight()
+        height = max(self.px(180), available-others-self.px(12))
+        if int(self.canvas.cget("height")) != height:
+            self.canvas.configure(height=height)
 
     def refresh_profile(self):
         self.field_combo.configure(values=[name for name, _ in field_choices(self.layout.seat_count)])
         if self.field.get() not in self.field_combo.cget("values"):
             self.field.set("anchor")
-        self.profile_label.configure(text=f"{self.layout.name} · {self.layout.seat_count} seats · unit {self.layout.chip_unit} · "
-                                    f"{len(self.layout.regions)} regions · {len(self.layout.examples)} examples")
+        self.update_profile_label()
         self.select_field()
 
     def select_field(self):
@@ -226,17 +474,21 @@ class ReaderWindow:
                 raw = SUIT_SYMBOLS.get(found.raw, found.raw) if kind == "suit" else display_notation(found.raw)
                 self.detail.configure(text=f"{name} · raw {raw}\nSimilarity {found.score:.3f} · "
                                       f"margin {found.margin:.3f}\n{found.issue or ('Manual correction' if found.manual else 'Automatic read')}")
+        self.draw_crop(region)
+        self.draw_preview()
+
+    def draw_crop(self, region=None):
+        region = region or self.layout.regions.get(self.field.get())
         if self.frame and region:
             try:
                 crop = region.crop(self.frame.image)
-                factor = min(330/crop.width, 72/crop.height)
+                factor = min(self.px(330)/crop.width, self.px(90)/crop.height)
                 self.crop_photo = ImageTk.PhotoImage(crop.resize((max(1, round(crop.width*factor)), max(1, round(crop.height*factor))), Image.Resampling.NEAREST))
                 self.crop_label.configure(image=self.crop_photo)
             except ValueError:
                 self.crop_label.configure(image="")
         else:
             self.crop_label.configure(image="")
-        self.draw_preview()
 
     def tree_select(self, event=None):
         selection = self.fields.selection()
@@ -264,7 +516,8 @@ class ReaderWindow:
         if self.selected_box:
             x0, y0, x1, y1 = self.selected_box
             self.canvas.create_rectangle(ox+x0*pw, oy+y0*ph, ox+x1*pw, oy+y1*ph, outline="#ffff80", width=2)
-            self.canvas.create_text(ox+x0*pw, max(oy+8, oy+y0*ph-8), text=self.field.get(), fill="#ffff80", anchor="w")
+            self.canvas.create_text(ox+x0*pw, max(oy+self.px(8), oy+y0*ph-self.px(8)),
+                                    text=self.field.get(), fill="#ffff80", anchor="w", font=self.theme.fonts.get(9))
 
     def point(self, event):
         if not self.preview_transform:
@@ -274,7 +527,7 @@ class ReaderWindow:
 
     def begin_drag(self, event):
         self.running = False
-        self.run_button.configure(text="Start")
+        self.run_label.set("Start")
         if self.future is not None:
             self.status.set("Wait for the current frame, then draw the region")
             return
@@ -294,7 +547,7 @@ class ReaderWindow:
     def reset_history(self, message="Layout changed; inferred history reset"):
         self.generation += 1
         self.running = False
-        self.run_button.configure(text="Start")
+        self.run_label.set("Start")
         self.history = TableHistory(self.layout, 2 if self.source and self.source.live else 1)
         self.overrides = {}
         self.records = []
@@ -339,12 +592,44 @@ class ReaderWindow:
         CalibratedReader.teach(self.layout, self.layout.regions[self.field.get()], self.frame.image, self.example_label.get())
         self.changed()
 
-    def manage_examples(self):
+    def new_dialog(self, title, width=800, height=540):
+        self.running = False
+        self.run_label.set("Start")
         dialog = tk.Toplevel(self.window)
-        dialog.title("Labeled examples · select to remove")
-        dialog.geometry("540x400")
-        listing = tk.Listbox(dialog, selectmode="extended")
-        listing.pack(fill="both", expand=True, padx=8, pady=8)
+        dialog.title(title)
+        dialog.geometry(geometry(self.display.fit(width*self.scale, height*self.scale,
+            self.window.winfo_x()+self.px(32), self.window.winfo_y()+self.px(32))))
+        dialog.footer = ttk.Frame(dialog, padding=self.px(8))
+        dialog.footer.pack(side="bottom", fill="x")
+        dialog.panel = ScrollPanel(dialog, self.theme)
+        dialog.panel.pack(fill="both", expand=True)
+        dialog.body = dialog.panel.body
+        self.dialogs.append(dialog)
+        self.bind_zoom(dialog)
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        return dialog
+
+    def finish_dialog(self, dialog):
+        self.theme.apply(dialog)
+        dialog.panel.bind_wheel()
+        dialog.lift()
+        return dialog
+
+    def list_widget(self, parent, multiple=False):
+        container = ttk.Frame(parent)
+        container.pack(fill="both", expand=True, padx=self.px(8), pady=self.px(8))
+        listing = tk.Listbox(container, selectmode="extended" if multiple else "browse", height=10)
+        vertical = tk.Scrollbar(container, orient="vertical", command=listing.yview)
+        vertical.pack(side="right", fill="y")
+        horizontal = tk.Scrollbar(container, orient="horizontal", command=listing.xview)
+        horizontal.pack(side="bottom", fill="x")
+        listing.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        listing.pack(fill="both", expand=True)
+        return listing
+
+    def manage_examples(self):
+        dialog = self.new_dialog("Labeled examples · select to remove")
+        listing = self.list_widget(dialog.body, multiple=True)
         for example in self.layout.examples:
             label = SUIT_SYMBOLS.get(example.label, example.label) if example.kind == "suit" else display_notation(example.label)
             listing.insert("end", f"{example.group} / {example.kind} / {label}")
@@ -353,7 +638,8 @@ class ReaderWindow:
                 del self.layout.examples[i]
                 listing.delete(i)
             self.changed()
-        ttk.Button(dialog, text="Remove selected examples", command=lambda: self.safe(remove)).pack(pady=6)
+        ttk.Button(dialog.footer, text="Remove selected examples", command=lambda: self.safe(remove)).pack(pady=6)
+        return self.finish_dialog(dialog)
 
     def correct_field(self):
         if self.future is not None:
@@ -361,10 +647,25 @@ class ReaderWindow:
         name = self.field.get()
         if not self.frame or name not in self.layout.regions:
             return
-        text = simpledialog.askstring("Provisional correction", f"{name}: enter the visible label.\nThis marks history unverified; it does not train the reader.", parent=self.window)
-        if text is not None:
-            self.overrides[name] = text
+        frame, generation = self.frame, self.generation
+        dialog = self.new_dialog("Provisional correction", 740, 280)
+        ttk.Label(dialog.body, text=f"{name}: enter the visible label.\nThis marks history unverified; it does not train the reader.",
+                  wraplength=self.px(650), padding=self.px(12)).pack(fill="x")
+        value = tk.StringVar()
+        entry = ttk.Entry(dialog.body, textvariable=value)
+        entry.pack(fill="x", padx=self.px(12), pady=self.px(8))
+        def apply():
+            if self.frame is not frame or self.generation != generation:
+                raise ValueError("The frame changed; reopen its correction")
+            self.overrides[name] = value.get()
             self.request_read(reuse=True)
+            dialog.destroy()
+        ttk.Button(dialog.footer, text="Apply correction", command=lambda: self.safe(apply)).pack(side="left", padx=8)
+        ttk.Button(dialog.footer, text="Cancel", command=dialog.destroy).pack(side="left", padx=8)
+        dialog.bind("<Return>", lambda e: self.safe(apply))
+        self.finish_dialog(dialog)
+        entry.focus_set()
+        return dialog
 
     def new_layout(self):
         self.layout = Layout(reference_size=self.frame.image.size if self.frame else (980, 800))
@@ -388,8 +689,8 @@ class ReaderWindow:
             self.status.set(f"Saved {self.profile_path.name}; includes labeled crops, not full frames")
 
     def settings(self):
-        dialog = tk.Toplevel(self.window)
-        dialog.title("Layout settings")
+        dialog = self.new_dialog("Layout settings", 880, 650)
+        form = dialog.body
         values = {}
         options = (("name", "Layout name"), ("seat_count", "Seats (2–10; seat 0 is you)"),
                    ("chip_unit", "One chip unit (e.g. 0.01 for cents)"),
@@ -397,14 +698,22 @@ class ReaderWindow:
                    ("decimal_separator", "Decimal separator (. or ,)"), ("threshold", "Minimum visual similarity (0.5–1)"),
                    ("margin", "Minimum separation from other labels"), ("contrast", "Foreground contrast (1–254)"))
         for row, (key, label) in enumerate(options):
-            ttk.Label(dialog, text=label, padding=5).grid(row=row, column=0, sticky="w")
+            label_widget = ttk.Label(form, text=label, padding=self.px(5), wraplength=self.px(400))
+            label_widget.grid(row=row, column=0, sticky="w")
             value = tk.StringVar(value=str(getattr(self.layout, key)))
-            ttk.Entry(dialog, textvariable=value, width=30).grid(row=row, column=1, padx=6)
+            ttk.Entry(form, textvariable=value, width=20).grid(row=row, column=1, padx=self.px(6), pady=self.px(5), sticky="ew")
             values[key] = value
         includes = tk.BooleanVar(value=self.layout.pot_includes_bets)
-        ttk.Checkbutton(dialog, text="Displayed pot includes current bets", variable=includes).grid(row=9, column=0, columnspan=2, pady=6)
+        ttk.Checkbutton(form, text="Displayed pot includes current bets", variable=includes).grid(row=9, column=0, columnspan=2, pady=self.px(6), sticky="w")
         reference = tk.BooleanVar(value=False)
-        ttk.Checkbutton(dialog, text="Use this frame's dimensions as reference", variable=reference).grid(row=10, column=0, columnspan=2)
+        ttk.Checkbutton(form, text="Use this frame's dimensions as reference", variable=reference).grid(row=10, column=0, columnspan=2, sticky="w")
+        form.columnconfigure(0, weight=1)
+        form.columnconfigure(1, weight=1)
+        def wrap(event):
+            for child in form.winfo_children():
+                if child.winfo_class() == "TLabel":
+                    child.configure(wraplength=max(100, round(event.width*.53)))
+        form.bind("<Configure>", wrap, add="+")
         def apply():
             layout = deepcopy(self.layout)
             for key, value in values.items():
@@ -418,7 +727,8 @@ class ReaderWindow:
             self.layout = layout
             self.changed()
             dialog.destroy()
-        ttk.Button(dialog, text="Apply and reset inferred history", command=lambda: self.safe(apply)).grid(row=11, column=0, columnspan=2, pady=12)
+        ttk.Button(dialog.footer, text="Apply and reset inferred history", command=lambda: self.safe(apply)).pack(pady=self.px(5))
+        return self.finish_dialog(dialog)
 
     def replace_source(self, source):
         old = self.source
@@ -452,11 +762,8 @@ class ReaderWindow:
 
     def choose_window(self):
         windows = list_windows()
-        dialog = tk.Toplevel(self.window)
-        dialog.title("Select the window to capture")
-        dialog.geometry("650x420")
-        listing = tk.Listbox(dialog)
-        listing.pack(fill="both", expand=True, padx=8, pady=8)
+        dialog = self.new_dialog("Select the window to capture", 850, 540)
+        listing = self.list_widget(dialog.body)
         for _, title in windows:
             listing.insert("end", title)
         def choose():
@@ -464,11 +771,12 @@ class ReaderWindow:
             if selected:
                 self.replace_source(CaptureSource(window=windows[selected[0]][0]))
                 dialog.destroy()
-        ttk.Button(dialog, text="Capture selected window", command=lambda: self.safe(choose)).pack(pady=8)
+        ttk.Button(dialog.footer, text="Capture selected window", command=lambda: self.safe(choose)).pack(pady=self.px(8))
+        return self.finish_dialog(dialog)
 
     def choose_screen(self):
         self.running = False
-        self.run_button.configure(text="Start")
+        self.run_label.set("Start")
         hud_visible = bool(self.hud.winfo_viewable())
         self.window.withdraw()
         self.hud.withdraw()
@@ -484,7 +792,8 @@ class ReaderWindow:
         overlay.geometry(f"{width}x{height}{left:+d}{top:+d}")
         canvas = tk.Canvas(overlay, bg="black", cursor="crosshair", highlightthickness=0)
         canvas.pack(fill="both", expand=True)
-        canvas.create_text(40, 35, anchor="nw", text="Drag the table area · Esc cancels", fill="white", font=("Segoe UI", 24))
+        canvas.create_text(self.px(40), self.px(35), anchor="nw", text="Drag the table area · Esc cancels",
+                           fill="white", font=self.theme.fonts.get(16, True))
         start = []
         def restore():
             self.chrome.restore()
@@ -530,14 +839,14 @@ class ReaderWindow:
 
     def next_frame(self):
         self.running = False
-        self.run_button.configure(text="Start")
+        self.run_label.set("Start")
         self.request_read()
 
     def toggle_run(self):
         if not self.source:
             raise ValueError("Choose an input first")
         self.running = not self.running
-        self.run_button.configure(text="Pause" if self.running else "Start")
+        self.run_label.set("Pause" if self.running else "Start")
         if self.running:
             self.request_read()
         else:
@@ -569,7 +878,7 @@ class ReaderWindow:
                 if generation == self.generation:
                     if reading is None:
                         self.running = False
-                        self.run_button.configure(text="Start")
+                        self.run_label.set("Start")
                         self.status.set("End of input · reopen it to replay")
                         self.hud_state.configure(text="End of input · last frame")
                     else:
@@ -577,7 +886,7 @@ class ReaderWindow:
             except Exception as exc:
                 if generation == self.generation:
                     self.running = False
-                    self.run_button.configure(text="Start")
+                    self.run_label.set("Start")
                     self.status.set(f"Input stopped: {exc}")
                     self.reading = self.result = None
                     self.fields.delete(*self.fields.get_children())
@@ -667,6 +976,8 @@ class ReaderWindow:
         self.closed = True
         self.running = False
         self.root.after_cancel(self.job)
+        if self.monitor_job:
+            self.root.after_cancel(self.monitor_job)
         if self.source:
             self.executor.submit(self.source.close)
         self.executor.shutdown(wait=False)

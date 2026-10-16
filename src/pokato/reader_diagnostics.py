@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageGrab, ImageTk
 from .app import App
 from .ui.table_reader import DemoSource
 from .ui.window import NativeWindow
+from .ui.sizing import geometry
 from .vision.capture import enable_dpi_awareness
 from .vision.calibrated import CalibratedReader
 from .vision.fixtures import demo_frames
@@ -188,16 +189,21 @@ def reader_smoke(report_path):
                 phase = "hud"
             elif phase == "hud":
                 assert studio.reading.snapshot
-                studio.show_hud()
-                studio.hud.geometry("460x370+1400+50")
-                studio.window.geometry("1380x900+16+16")
+                studio.hud.withdraw()
+                studio.window.geometry(geometry(studio.display.fit(1320*studio.scale, 880*studio.scale)))
                 studio.window.lift()
+                resume_after = time.monotonic()+.5
+                phase = "studio-screenshot"
+            elif phase == "studio-screenshot":
+                assert studio.window.winfo_viewable()
+                ImageGrab.grab(window=NativeWindow(studio.window).handle).save(report_path.with_suffix(".png"))
+                studio.show_hud()
+                studio.hud.geometry(geometry(studio.hud_display.hud_rect()))
                 studio.hud.lift()
                 resume_after = time.monotonic()+.5
                 phase = "screenshot"
             elif phase == "screenshot":
                 assert studio.window.winfo_viewable() and studio.hud.winfo_viewable()
-                ImageGrab.grab(window=NativeWindow(studio.window).handle).save(report_path.with_suffix(".png"))
                 ImageGrab.grab(window=NativeWindow(studio.hud).handle).save(report_path.with_name(report_path.stem+"-hud.png"))
                 assert "♠" in studio.hud_cards.cget("text") or any(symbol in studio.hud_cards.cget("text") for symbol in "♣♦♥")
                 studio.close()

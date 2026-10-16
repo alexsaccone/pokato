@@ -193,3 +193,16 @@ history conventions. External recommendations remain withheld.
 
 The app remains `dist\Pokato.exe`. Binaries, profiles and QA reports under ignored
 artifact directories stay outside these commits. No push to GitHub is performed.
+
+## Readability follow-up: version 0.5.1
+
+`fix(ui): scale table reader and dialogs for high-DPI displays` adds scoped pixel
+fonts, display-sized windows, scaled inspector rows/dropdowns, independent saved
+reader zoom, compact command menus and scrollable calibration/readings/dialogs.
+Zoom preserves source pixels, calibration, history and unsaved editor values.
+The existing practice-coach font settings and optical scaling stay independent.
+
+Validation: 85 unit tests, five reader readability cases including 4K/250% and
+200% text zoom, five practice readability cases, actual settings-dialog pixels,
+and the packaged reader/capture/export self-test. The same `dist\Pokato.exe`
+is rebuilt; README previews show the larger UI.

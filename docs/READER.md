@@ -7,6 +7,26 @@ needs a saved profile for the actual visual skin. ClubWPT Gold and HD Poker
 screenshots have not been supplied or validated; the demo is a synthetic table.
 External recommendations and Bayesian updates remain withheld in this milestone.
 
+## Readable text and window sizing
+
+Version 0.5.1 sizes the studio, inspector rows, dropdowns, HUD and calibration
+dialogs for display DPI. On a 4K display at 250%, studio body text defaults to
+40 physical pixels; the compact HUD uses approximately 30-pixel body text.
+The default studio window also grows to suit the display. Optical input pixels
+and saved region coordinates stay unchanged when UI text sizes change.
+
+Use **A− / A+ / Reset** in the studio or HUD, **Ctrl + / Ctrl − / Ctrl 0**, or
+**Ctrl + mouse wheel** for 80–200% text zoom. `reader_zoom` is saved separately
+from the coach's `hud_zoom` in `%USERPROFILE%\.pokato\settings.json`.
+Moving the studio/HUD between monitors updates its display scale.
+
+Short windows and large zoom use **Input / Layout / View** menus in place of the
+full command bars. Input contains Images/Video/Window/Screen region/Demo;
+Layout contains calibration/settings/save/export commands; View contains
+Next frame/Show HUD and the calibration/readings page choices. Wide windows show
+calibration and readings side by side; narrower windows show one page at a time.
+The panels and settings dialogs scroll vertically so large controls stay reachable.
+
 ## Calibrate a table
 
 1. Open **Read table** from the practice controls. Practice coaching/bots pause.
@@ -170,7 +190,8 @@ recordings stop with an error. These dependencies increase size/extraction time.
 The build copies OpenCV/NumPy distribution metadata and third-party license notices
 into the bundle. All features remain in the same `dist\Pokato.exe`.
 
-Release validation on Windows/Python 3.12: 84 unit tests passed; reader desktop
-checks, the screen-selector capture/cancel flow, five practice readability layouts,
-and frozen reader/turn/replay checks passed. The updated executable is 70,786,290
-bytes, SHA-256 `5C582DA7D7C5B8880B30E5DFE4DDBB0136A9A139AD8330F9DF1F13FB2A2DE6BF`.
+Version 0.5.1 adds actual-widget readability checks at 768p, 1080p and 4K with
+100%, 150% and 250% display scaling. They check row/font metrics, dropdown and
+dialog text, wrapped controls, scrolling at 200% zoom, saved independent zoom,
+unchanged input/calibration/history and provisional corrections through the UI.
+Run `scripts/reader_readability_smoke.py`, or add `--case 4k-250` for that display.

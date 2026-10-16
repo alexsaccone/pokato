@@ -230,6 +230,13 @@ It also retains the earlier self-test modes and hand-review features.
 
 ## Client-independent table reader (milestone 5)
 
+The reader, recognition HUD and calibration dialogs scale for your display.
+Use **A− / A+ / Reset**, **Ctrl + / Ctrl − / Ctrl 0**, or **Ctrl + mouse wheel**
+to change text size. Reader zoom is saved separately from practice-coach zoom.
+On short displays or at large zoom, commands move into **Input / Layout / View**
+menus; **View** switches between calibration and readings when both cannot fit
+side by side. Scroll the panels to reach their remaining controls.
+
 ![Calibration studio](docs/reader-preview.png)
 
 [Preview the recognition HUD](docs/reader-hud-preview.png).
@@ -271,6 +278,9 @@ The same `dist\Pokato.exe` accepts `--reader`, `--image`, `--layout` and
 `--self-test-reader <absolute-report-path>`. There is no second application.
 
 ## Verify
+
+Run `scripts/reader_readability_smoke.py` with the project Python to check the
+reader's fonts, dialogs, saved zoom and scrolling at common screen sizes.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/validate.py

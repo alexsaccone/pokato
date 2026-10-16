@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pokato"
-version = "0.5.0"
+version = "0.5.1"
 description = "A local, screen-reading Texas Hold'em practice coach"
 requires-python = ">=3.10"
 dependencies = ["Pillow>=11.2,<13", "opencv-python-headless==4.13.0.92"]

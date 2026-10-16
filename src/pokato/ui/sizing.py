@@ -90,12 +90,13 @@ class HudFonts:
 
 
 class Preferences:
-    def __init__(self, path=None):
+    def __init__(self, path=None, key="hud_zoom"):
+        self.key = key
         self.path = None if path is False else Path(path or Path.home() / ".pokato" / "settings.json")
         self.zoom = 1.0
         if self.path:
             try:
-                value = json.loads(self.path.read_text(encoding="utf-8")).get("hud_zoom", 1.0)
+                value = json.loads(self.path.read_text(encoding="utf-8")).get(self.key, 1.0)
                 if isinstance(value, (int, float)) and not isinstance(value, bool) and 0.8 <= value <= 2.0:
                     self.zoom = round(value, 2)
             except (OSError, ValueError, AttributeError):
@@ -106,8 +107,15 @@ class Preferences:
         if self.path:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    settings = json.loads(self.path.read_text(encoding="utf-8"))
+                    if not isinstance(settings, dict):
+                        settings = {}
+                except (OSError, ValueError):
+                    settings = {}
+                settings[self.key] = self.zoom
                 temporary = self.path.with_suffix(".tmp")
-                temporary.write_text(json.dumps({"hud_zoom": self.zoom}, indent=2), encoding="utf-8")
+                temporary.write_text(json.dumps(settings, indent=2), encoding="utf-8")
                 temporary.replace(self.path)
             except OSError:
                 pass
