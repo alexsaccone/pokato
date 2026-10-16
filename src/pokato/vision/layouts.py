@@ -9,7 +9,8 @@ import re
 import uuid
 from PIL import Image
 
-KINDS = ("rank", "suit", "number", "number_state", "flag", "status", "anchor", "identity")
+KINDS = ("rank", "suit", "number", "number_state", "number_text", "flag", "status", "anchor", "identity")
+FOREGROUNDS = ("auto", "light", "card", "color")
 
 
 @dataclass(frozen=True)
@@ -19,6 +20,7 @@ class Region:
     kind: str
     group: str = ""
     multiplier: str = "1"
+    foreground: str = "auto"
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not re.fullmatch(r"[a-z][a-z0-9_.]{0,63}", self.name):
@@ -31,6 +33,8 @@ class Region:
             raise ValueError("Select a nonempty region inside the image")
         if not isinstance(self.group, str) or len(self.group) > 80:
             raise ValueError("Invalid template group")
+        if self.foreground not in FOREGROUNDS:
+            raise ValueError("Foreground must be auto, light, card or color")
         from decimal import Decimal, InvalidOperation
         try:
             value = Decimal(self.multiplier)
@@ -61,6 +65,7 @@ class Example:
     kind: str
     label: str
     png: str
+    foreground: str = "auto"
 
     @classmethod
     def create(cls, region, label, crop):
@@ -69,7 +74,7 @@ class Example:
         image.thumbnail((256, 256), Image.Resampling.LANCZOS)
         stream = BytesIO()
         image.save(stream, format="PNG")
-        return cls(region.template_group, region.kind, str(label), base64.b64encode(stream.getvalue()).decode("ascii"))
+        return cls(region.template_group, region.kind, str(label), base64.b64encode(stream.getvalue()).decode("ascii"), region.foreground)
 
     def image(self):
         if not isinstance(self.png, str) or len(self.png) > 400000:
@@ -130,6 +135,8 @@ class Layout:
                 raise ValueError("Invalid example label")
             if not isinstance(example.group, str) or len(example.group) > 80:
                 raise ValueError("Invalid example group")
+            if example.foreground not in FOREGROUNDS:
+                raise ValueError("Invalid example foreground")
         return self
 
     def save(self, path):
@@ -173,6 +180,7 @@ def field_choices(seats=6):
         for i in range(count):
             result.extend((f"{prefix}{i}.{kind}", kind) for kind in ("rank", "suit"))
     result.append(("pot", "number"))
+    result.append(("single_pot", "flag"))
     for i in range(seats):
         result.extend((f"seat{i}.{suffix}", kind) for suffix, kind in (
             ("stack", "number"), ("bet", "number"), ("status", "status"),

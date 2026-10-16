@@ -4,7 +4,8 @@ import tempfile
 from pathlib import Path
 import unittest
 from PIL import Image, ImageDraw
-from pokato.vision.calibrated import CalibratedReader, parse_amount
+from dataclasses import replace
+from pokato.vision.calibrated import CalibratedReader, FieldRead, parse_amount
 from pokato.vision.fixtures import SyntheticSkin, from_game, demo_frames
 from pokato.vision.layouts import Layout
 from pokato.vision.sources import Frame
@@ -12,6 +13,25 @@ from pokato.core.game import Game
 
 
 class CalibratedTests(unittest.TestCase):
+    def test_side_pot_guard_and_missing_postflop_pot_withhold_the_snapshot(self):
+        skin = SyntheticSkin()
+        reader = CalibratedReader(skin.train())
+        game = Game()
+        game.new_hand()
+        frame = Frame(skin.render(from_game(game, 0)), 0, 0., 'fixture')
+        fields = reader.read(frame).fields
+        guard = FieldRead('single_pot', False, 1., 1., (0, 0, 1, 1))
+        self.assertIn('side pots', reader.assemble(frame, fields+(guard,)).issues[0])
+        self.assertIsNotNone(reader.assemble(frame, fields+(replace(guard, value=True),)).snapshot)
+        for _ in range(6):
+            game.act('K' if game.legal()['check'] else 'C')
+        frame = Frame(skin.render(from_game(game, 1)), 1, .25, 'fixture')
+        fields = reader.read(frame).fields
+        changed = tuple(replace(field, value=0, raw='=0') if field.name == 'pot' else field for field in fields)
+        result = reader.assemble(frame, changed)
+        self.assertIsNone(result.snapshot)
+        self.assertIn('collected pot is missing', result.issues[0])
+
     def test_amount_units_thousands_decimal_and_mixed_bb_display(self):
         self.assertEqual(parse_amount("$1,200.50", ".01"), 120050)
         self.assertEqual(parse_amount("1.200,50€", ".01", ","), 120050)

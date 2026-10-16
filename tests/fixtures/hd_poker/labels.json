@@ -1,0 +1,272 @@
+[
+  {
+    "file": "train-00.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "237.5K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-01.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "284.5K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-02.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "536.6K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-03.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "196.1K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-04.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "48K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-05.png",
+    "split": "train",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "95.87K",
+    "source_frame": "screen-055.png"
+  },
+  {
+    "file": "train-06.png",
+    "split": "train",
+    "kind": "number",
+    "group": "pot_amount",
+    "foreground": "light",
+    "label": "12K",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-07.png",
+    "split": "train",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": "500",
+    "source_frame": "screen-012.png"
+  },
+  {
+    "file": "train-08.png",
+    "split": "train",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": "4,500",
+    "source_frame": "screen-040.png"
+  },
+  {
+    "file": "train-09.png",
+    "split": "train",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": "50,000",
+    "source_frame": "screen-055.png"
+  },
+  {
+    "file": "train-10.png",
+    "split": "train",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "Q",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-11.png",
+    "split": "train",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "4",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-12.png",
+    "split": "train",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "7",
+    "source_frame": "screen-034.png"
+  },
+  {
+    "file": "train-13.png",
+    "split": "train",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "h",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-14.png",
+    "split": "train",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "s",
+    "source_frame": "screen-first.png"
+  },
+  {
+    "file": "train-15.png",
+    "split": "train",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "d",
+    "source_frame": "screen-016.png"
+  },
+  {
+    "file": "train-16.png",
+    "split": "train",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "c",
+    "source_frame": "screen-016.png"
+  },
+  {
+    "file": "test-17.png",
+    "split": "test",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "278K",
+    "source_frame": "screen-018.png"
+  },
+  {
+    "file": "test-18.png",
+    "split": "test",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "376.9K",
+    "source_frame": "screen-036.png"
+  },
+  {
+    "file": "test-19.png",
+    "split": "test",
+    "kind": "number",
+    "group": "stack_amount",
+    "foreground": "light",
+    "label": "413.5K",
+    "source_frame": "screen-065.png"
+  },
+  {
+    "file": "test-20.png",
+    "split": "test",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": "500",
+    "source_frame": "screen-026.png"
+  },
+  {
+    "file": "test-21.png",
+    "split": "test",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": null,
+    "source_frame": "screen-043.png"
+  },
+  {
+    "file": "test-22.png",
+    "split": "test",
+    "kind": "number",
+    "group": "bet_amount",
+    "foreground": "light",
+    "label": "50,000",
+    "source_frame": "screen-057.png"
+  },
+  {
+    "file": "test-23.png",
+    "split": "test",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "Q",
+    "source_frame": "screen-018.png"
+  },
+  {
+    "file": "test-24.png",
+    "split": "test",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "7",
+    "source_frame": "screen-018.png"
+  },
+  {
+    "file": "test-25.png",
+    "split": "test",
+    "kind": "rank",
+    "group": "board_rank",
+    "foreground": "card",
+    "label": "4",
+    "source_frame": "screen-047.png"
+  },
+  {
+    "file": "test-26.png",
+    "split": "test",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "d",
+    "source_frame": "screen-018.png"
+  },
+  {
+    "file": "test-27.png",
+    "split": "test",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "c",
+    "source_frame": "screen-018.png"
+  },
+  {
+    "file": "test-28.png",
+    "split": "test",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "s",
+    "source_frame": "screen-047.png"
+  },
+  {
+    "file": "test-29.png",
+    "split": "test",
+    "kind": "suit",
+    "group": "board_suit",
+    "foreground": "card",
+    "label": "h",
+    "source_frame": "screen-047.png"
+  }
+]

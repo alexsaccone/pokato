@@ -213,6 +213,10 @@ class ReaderWindow:
         self.button_grid(editor, "Examples…", self.manage_examples, 3, 2)
         self.help_text = ttk.Label(editor, text="", wraplength=560, padding=3)
         self.help_text.grid(row=4, column=0, columnspan=3, sticky="ew")
+        ttk.Label(editor, text="Ink: auto / light text / card symbols / color markers").grid(row=5, column=0, columnspan=3, sticky="w")
+        self.foreground = tk.StringVar(value="auto")
+        ttk.Combobox(editor, textvariable=self.foreground, state="readonly", values=("auto", "light", "card", "color"),
+                     width=12).grid(row=6, column=0, sticky="ew")
         editor.columnconfigure(0, weight=1)
         self.inspector_hint = ttk.Label(inspector, text="Readings · similarity is not a probability\nDouble-click a field for a provisional correction.", padding=6)
         self.inspector_hint.pack(fill="x")
@@ -458,6 +462,7 @@ class ReaderWindow:
         self.selected_box = region.box if region else None
         self.group.set(region.group if region else "")
         self.multiplier.set(region.multiplier if region else "1")
+        self.foreground.set(region.foreground if region else "auto")
         kind = dict(field_choices(self.layout.seat_count)).get(name, "")
         self.help_text.configure(text={
             "rank": "Label 2–9, T (ten), J, Q, K, A or empty. Crop rank only; include padding.",
@@ -468,12 +473,14 @@ class ReaderWindow:
             "anchor": "Crop a stable, distinctive table graphic; label match. Avoid clocks or changing text.",
             "identity": "Optional: crop the player name. A changed visual fingerprint invalidates this hand's history. No label needed."
         }.get(kind, ""))
+        if name == "single_pot":
+            self.help_text.configure(text="Optional pot-layout guard: label yes for a supported single pot, no for side pots or unsupported placement. Unknown guards withhold the complete state.")
         if self.reading:
             found = next((f for f in self.reading.fields if f.name == name), None)
             if found:
                 raw = SUIT_SYMBOLS.get(found.raw, found.raw) if kind == "suit" else display_notation(found.raw)
                 self.detail.configure(text=f"{name} · raw {raw}\nSimilarity {found.score:.3f} · "
-                                      f"margin {found.margin:.3f}\n{found.issue or ('Manual correction' if found.manual else 'Automatic read')}")
+                                      f"margin {found.margin:.3f}\n{found.issue or ('Rounded display amount' if found.approximate else 'Manual correction' if found.manual else 'Automatic read')}")
         self.draw_crop(region)
         self.draw_preview()
 
@@ -575,7 +582,7 @@ class ReaderWindow:
             raise ValueError("Wait for the current frame before changing its regions")
         name = self.field.get()
         kind = dict(field_choices(self.layout.seat_count))[name]
-        region = Region(name, self.selected_box, kind, self.group.get().strip(), self.multiplier.get().strip())
+        region = Region(name, self.selected_box, kind, self.group.get().strip(), self.multiplier.get().strip(), self.foreground.get())
         region.pixels(self.frame.image.size)
         self.layout.regions[name] = region
         self.changed()
@@ -915,10 +922,12 @@ class ReaderWindow:
         self.fields.delete(*self.fields.get_children())
         for found in reading.fields:
             value = "—" if found.value is None else display_notation(str(found.value))
+            if found.approximate:
+                value = "≈"+value
             if self.layout.regions[found.name].kind == "suit":
                 value = SUIT_SYMBOLS.get(value, value)
             self.fields.insert("", "end", iid=found.name, text=found.name,
-                               values=(value, f"{found.score:.3f}", found.issue or ("manual" if found.manual else "automatic")))
+                               values=(value, f"{found.score:.3f}", found.issue or ("rounded display" if found.approximate else "manual" if found.manual else "automatic")))
         message = self.result.message
         self.status.set(f"Frame {self.frame.index} · {self.result.quality} · {message[:130]}")
         descriptions = {"B": "blind", "F": "fold", "K": "check", "C": "call", "R": "raise"}
@@ -938,11 +947,33 @@ class ReaderWindow:
             self.hud_state.configure(text=f"{streets[snapshot.street]} · {self.result.quality} · frame {snapshot.index}")
             self.hud_cards.configure(text="  ".join(display_card(c) for c in snapshot.hole)+"\n"+
                                      ("  ".join(display_card(c) for c in snapshot.board) or "Board not dealt"))
-            self.hud_info.configure(text=f"Pot {self.amount(snapshot.pot)} · Dealer seat {snapshot.button}\n"+
+            self.hud_info.configure(text=f"Pot {'≈' if snapshot.approximate else ''}{self.amount(snapshot.pot)} · Dealer seat {snapshot.button}\n"+
                                     (f"Acting seat {snapshot.actor}" if snapshot.actor >= 0 else "No acting player"))
             self.hud_quality.configure(text=f"{message}\nRecognition only · recommendations withheld")
         else:
             self.clear_hud(message)
+            # Calibration is useful before every seat marker is trained. Show
+            # individual card evidence explicitly as partial, without a state
+            # or action recommendation inferred from missing fields.
+            found = {f.name: f for f in reading.fields}
+            def partial_cards(prefix, count):
+                result = []
+                for i in range(count):
+                    rank, suit = (found.get(f"{prefix}{i}.{k}") for k in ("rank", "suit"))
+                    if rank and suit and not rank.issue and not suit.issue:
+                        if rank.value == suit.value == "empty":
+                            result.append("·")
+                        elif isinstance(rank.value, str) and rank.value in "23456789TJQKA" and suit.value in SUIT_SYMBOLS:
+                            result.append(display_card(rank.value+suit.value))
+                        else:
+                            result.append("?")
+                    else:
+                        result.append("?")
+                return "  ".join(result)
+            anchor = found.get("anchor")
+            if anchor and anchor.value is True and not anchor.issue:
+                self.hud_state.configure(text=f"Partial reading · frame {self.frame.index}")
+                self.hud_cards.configure(text=partial_cards("hole", 2)+"\n"+partial_cards("board", 5))
         self.select_field()
 
     def amount(self, value):

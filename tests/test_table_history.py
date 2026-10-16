@@ -13,6 +13,18 @@ def reading(snapshot):
 
 
 class TableHistoryTests(unittest.TestCase):
+    def test_abbreviated_display_amounts_cannot_reconcile_an_exact_ledger(self):
+        layout = SyntheticSkin().layout
+        history = TableHistory(layout, 1)
+        game = Game()
+        game.new_hand()
+        initial = from_game(game, 0)
+        self.assertEqual(history.accept(reading(initial)).quality, "reconciled")
+        result = history.accept(reading(replace(initial, index=1, approximate=True)))
+        self.assertEqual(result.quality, "gap")
+        self.assertIn("rounded", result.message)
+        self.assertIsNone(result.observation)
+
     def test_visible_ledger_matches_real_game_without_using_the_event_tape(self):
         skin = SyntheticSkin()
         layout = skin.train()

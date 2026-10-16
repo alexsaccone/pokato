@@ -17,9 +17,36 @@ from .layouts import Example, field_choices
 NUMBER_CHARS = "0123456789.,$€£¥kKmMbB+-"
 
 
-def foreground(image, contrast=30):
+def foreground(image, contrast=30, mode="auto"):
     image = image.convert("RGB")
     image.thumbnail((512, 256), Image.Resampling.LANCZOS)
+    if mode != "auto":
+        if mode == "light":
+            # White amount text on gradient panels; exclude saturated cyan borders.
+            ink = lambda p: min(p) >= 170 and max(p)-min(p) <= 65
+        elif mode == "card":
+            # Dark and red card ink, excluding pale card gradients and white outlines.
+            ink = lambda p: max(p) <= 110 or (p[0] >= 70 and p[1] < .65*p[0] and p[2] < .65*p[0])
+        elif mode == "color":
+            ink = lambda p: max(p) >= 120 and max(p)-min(p) >= 70
+        else:
+            raise ValueError("Unknown foreground mode")
+        mask = Image.new("L", image.size)
+        mask.putdata([255 if ink(p) else 0 for p in image.getdata()])
+        if mode == "card":
+            import cv2
+            import numpy as np
+            array = np.asarray(mask)
+            count, labels, stats, _ = cv2.connectedComponentsWithStats(array, connectivity=8)
+            # Felt and neighboring card edges can enter the crop. Retain
+            # complete ink components; glyphs must have background padding.
+            border = set(np.concatenate((labels[0], labels[-1], labels[:, 0], labels[:, -1])).tolist())
+            components = [i for i in range(1, count) if i not in border]
+            largest = max((stats[i, cv2.CC_STAT_AREA] for i in components), default=0)
+            keep = [i for i in components if stats[i, cv2.CC_STAT_AREA] >= .18*largest]
+            mask = Image.fromarray(np.where(np.isin(labels, keep), 255, 0).astype('uint8'))
+        ImageDraw.Draw(mask).rectangle((0, 0, mask.width-1, mask.height-1), outline=0)
+        return mask
     small = image.copy()
     small.thumbnail((64, 64), Image.Resampling.BOX)
     quantized = small.quantize(colors=8, method=Image.Quantize.FASTOCTREE)
@@ -84,7 +111,7 @@ def label_for(kind, value):
         if value.lower() != "match":
             raise ValueError("Stable table anchor label must be match")
         value = "match"
-    elif kind == "number":
+    elif kind in ("number", "number_text"):
         value = re.sub(r"\s+", "", value)
         if not value or any(c not in NUMBER_CHARS for c in value):
             raise ValueError("Select only the amount text; label its visible digits, currency and punctuation")
@@ -124,13 +151,23 @@ def parse_amount(text, unit="1", separator=".", multiplier="1"):
 def compiled(example, contrast):
     image = example.image()
     if example.kind == "number":
-        parts = segments(foreground(image, contrast))
+        parts = segments(foreground(image, contrast, example.foreground))
         if len(parts) != len(example.label):
             raise ValueError("Amount characters touch or the example label does not match the visible text")
         return tuple((char, *normalized(mask)) for char, mask in zip(example.label, parts))
-    if example.kind in ("rank", "suit", "number_state"):
-        image, aspect = normalized(foreground(image, contrast))
+    if example.kind in ("rank", "suit", "number_state", "number_text"):
+        mask = foreground(image, contrast, example.foreground)
+        if example.kind == "number_text" and not mask.getbbox():
+            raise ValueError("Amount example has no visible ink; use =0 only for a verified zero state")
+        if example.foreground == "card" and example.kind in ("rank", "suit"):
+            if not mask.getbbox() and example.label != "empty":
+                raise ValueError("Card ink is missing or clipped; include padding around the entire glyph")
+            if mask.getbbox() and example.label == "empty":
+                raise ValueError("Empty card example contains ink; adjust its region or foreground")
+        image, aspect = normalized(mask)
     else:
+        if example.foreground != "auto":
+            image = foreground(image, contrast, example.foreground)
         image, aspect = image.resize((48, 32), Image.Resampling.BILINEAR), 1.
     return ((example.label, image, aspect),)
 
@@ -166,6 +203,7 @@ class FieldRead:
     raw: str = ""
     issue: str = ""
     manual: bool = False
+    approximate: bool = False
 
 
 @dataclass(frozen=True)
@@ -189,6 +227,7 @@ class TableSnapshot:
     street: str
     score: float
     manual: bool = False
+    approximate: bool = False
 
 
 @dataclass(frozen=True)
@@ -205,7 +244,7 @@ class CalibratedReader:
         self.templates = {}
         for example in layout.examples:
             label_for(example.kind, example.label)
-            key = (example.group, example.kind)
+            key = (example.group, example.kind, example.foreground)
             self.templates.setdefault(key, []).extend(compiled(example, layout.contrast))
 
     @staticmethod
@@ -215,6 +254,9 @@ class CalibratedReader:
         if region.kind == "number" and str(value).strip().startswith("="):
             label = str(value).strip()[1:]
             label_for("number_state", label)
+            current = CalibratedReader(layout).field(region, image)
+            if current.value is not None and current.value > 0:
+                raise ValueError("This region reads as a nonzero amount; do not teach it as zero")
             example = Example.create(replace(region, kind="number_state", group=region.name), label, region.crop(image))
             compiled(example, layout.contrast)
             replace(layout, examples=[*layout.examples, example]).validate()
@@ -222,27 +264,49 @@ class CalibratedReader:
             return example
         label = label_for(region.kind, value)
         example = Example.create(region, label, region.crop(image))
-        compiled(example, layout.contrast)  # Validate segmentation before saving.
+        try:
+            compiled(example, layout.contrast)
+        except ValueError:
+            if region.kind != "number":
+                raise
+            # Bold or italic amounts can join adjacent characters. Preserve a
+            # whole-text example instead; unseen strings still require OCR.
+            example = Example.create(replace(region, kind="number_text", group=region.template_group), label, region.crop(image))
+            compiled(example, layout.contrast)
         replace(layout, examples=[*layout.examples, example]).validate()
         layout.examples.append(example)
         return example
 
     def field(self, region, image):
         crop = region.crop(image)
-        candidates = self.templates.get((region.template_group, region.kind), ())
+        # Examples are bounded to this size when saved. Use the identical
+        # resampling at inference, including wide amount regions on 4K screens.
+        crop.thumbnail((256, 256), Image.Resampling.LANCZOS)
+        candidates = self.templates.get((region.template_group, region.kind, region.foreground), ())
         if region.kind == "identity":
-            mask, aspect = normalized(foreground(crop, self.layout.contrast))
+            mask, aspect = normalized(foreground(crop, self.layout.contrast, region.foreground))
             value = hashlib.sha256(mask.tobytes()).hexdigest()[:16]
             return FieldRead(region.name, value, 1., 1., region.box, value)
         if region.kind == "number":
-            states = self.templates.get((region.name, "number_state"), ())
+            states = self.templates.get((region.name, "number_state", region.foreground), ())
             if states:
-                label, score, separation, issue = choose(*normalized(foreground(crop, self.layout.contrast)),
+                label, score, separation, issue = choose(*normalized(foreground(crop, self.layout.contrast, region.foreground)),
                     states, self.layout.threshold, self.layout.margin)
                 if label is not None:
                     value = parse_amount(label, self.layout.chip_unit, self.layout.decimal_separator, region.multiplier)
                     return FieldRead(region.name, value, score, separation, region.box, "="+label)
-            parts = segments(foreground(crop, self.layout.contrast))
+            whole, aspect = normalized(foreground(crop, self.layout.contrast, region.foreground))
+            words = self.templates.get((region.template_group, "number_text", region.foreground), ())
+            words = [candidate for candidate in words if aspect and candidate[2] and abs(math.log(aspect/candidate[2])) <= .04]
+            label, score, separation, issue = choose(whole, aspect, words, max(.975, self.layout.threshold), self.layout.margin)
+            if label is not None:
+                try:
+                    value = parse_amount(label, self.layout.chip_unit, self.layout.decimal_separator, region.multiplier)
+                    return FieldRead(region.name, value, score, separation, region.box, label,
+                                     approximate=label[-1:].upper() in ("K", "M"))
+                except ValueError:
+                    pass
+            parts = segments(foreground(crop, self.layout.contrast, region.foreground))
             if not parts:
                 return FieldRead(region.name, None, 0., 0., region.box, issue="Amount is blank")
             matches = [choose(*normalized(part), candidates, self.layout.threshold, self.layout.margin) for part in parts]
@@ -254,11 +318,15 @@ class CalibratedReader:
                     value = parse_amount(raw, self.layout.chip_unit, self.layout.decimal_separator, region.multiplier)
                 except ValueError as exc:
                     issue = str(exc)
-            return FieldRead(region.name, value, min(m[1] for m in matches), min(m[2] for m in matches), region.box, raw, issue)
+            return FieldRead(region.name, value, min(m[1] for m in matches), min(m[2] for m in matches), region.box, raw, issue,
+                             approximate=value is not None and raw[-1:].upper() in ("K", "M"))
         if region.kind in ("rank", "suit"):
-            mask, aspect = normalized(foreground(crop, self.layout.contrast))
+            mask, aspect = normalized(foreground(crop, self.layout.contrast, region.foreground))
+            if region.foreground == "card" and aspect == 0 and sum(min(p) >= 160 for p in crop.convert('RGB').getdata()) > crop.width*crop.height*.4:
+                return FieldRead(region.name, None, 0., 0., region.box, issue="Card face is visible but its ink is missing or clipped")
         else:
-            mask, aspect = crop.convert("RGB").resize((48, 32), Image.Resampling.BILINEAR), 1.
+            mask = crop.convert("RGB") if region.foreground == "auto" else foreground(crop, self.layout.contrast, region.foreground)
+            mask, aspect = mask.resize((48, 32), Image.Resampling.BILINEAR), 1.
         label, score, margin, issue = choose(mask, aspect, candidates, self.layout.threshold, self.layout.margin)
         value = label
         if label is not None and region.kind in ("flag", "anchor"):
@@ -285,7 +353,8 @@ class CalibratedReader:
                         value = parse_amount(value, self.layout.chip_unit, self.layout.decimal_separator, region.multiplier)
                     elif region.kind in ("flag", "anchor"):
                         value = value in ("yes", "match")
-                    found = replace(found, value=value, score=1., margin=1., raw=raw, issue="", manual=True)
+                    found = replace(found, value=value, score=1., margin=1., raw=raw, issue="", manual=True,
+                                    approximate=region.kind == "number" and raw[-1:].upper() in ("K", "M"))
             except ValueError as exc:
                 found = FieldRead(region.name, None, 0., 0., region.box, issue=str(exc))
             fields.append(found)
@@ -293,18 +362,22 @@ class CalibratedReader:
 
     def assemble(self, frame, fields):
         found = {f.name: f for f in fields}
-        required = [(name, kind) for name, kind in field_choices(self.layout.seat_count) if kind != "identity"]
+        required = [(name, kind) for name, kind in field_choices(self.layout.seat_count) if kind != "identity" and name != "single_pot"]
         issues = [f"{name}: missing region" for name, kind in required if name not in found]
         issues.extend(f"{f.name}: {f.issue}" for f in fields if f.issue)
         for name, kind in required:
             if name in self.layout.regions and self.layout.regions[name].kind != kind:
                 issues.append(f"{name}: wrong field type")
+        if "single_pot" in self.layout.regions and self.layout.regions["single_pot"].kind != "flag":
+            issues.append("single_pot: wrong field type")
         if issues:
             return TableReading(frame, fields, None, tuple(issues))
         value = lambda name: found[name].value
         try:
             if value("anchor") is not True:
                 raise ValueError("Stable table anchor did not match")
+            if "single_pot" in found and value("single_pot") is not True:
+                raise ValueError("Pot layout is unsupported or contains side pots")
             def cards(prefix, count):
                 result = []
                 empty = False
@@ -318,6 +391,8 @@ class CalibratedReader:
                         result.append(rank+suit)
                 return tuple(result)
             hole, board = cards("hole", 2), cards("board", 5)
+            if board and value("pot") == 0:
+                raise ValueError("Board is dealt but the collected pot is missing; wait or recalibrate")
             validate_cards(hole+board)
             if len(hole) not in (0, 2) or len(board) not in (0, 3, 4, 5):
                 raise ValueError("Incomplete cards or board animation")
@@ -341,7 +416,7 @@ class CalibratedReader:
             if pot < sum(s.bet for s in seats):
                 raise ValueError("Pot is smaller than visible bets; check pot convention")
             snapshot = TableSnapshot(frame.index, frame.timestamp, hole, board, pot, seats, buttons[0], actor,
-                                     street, min(f.score for f in fields), any(f.manual for f in fields))
+                                     street, min(f.score for f in fields), any(f.manual for f in fields), any(f.approximate for f in fields))
             return TableReading(frame, fields, snapshot, ())
         except (ValueError, TypeError) as exc:
             return TableReading(frame, fields, None, (str(exc),))

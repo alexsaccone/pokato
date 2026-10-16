@@ -90,6 +90,9 @@ class TableHistory:
             return HistoryResult("unreadable", "; ".join(reading.issues[:3]), tuple(self.events))
         if snapshot.manual:
             return self.fail("Manual corrections are provisional and cannot establish automatic action history")
+        if snapshot.approximate:
+            self.signature, self.repeats = None, 0
+            return self.fail("Abbreviated K/M amounts may be rounded and cannot establish exact chip history")
         signature = (snapshot.hole, snapshot.board, snapshot.pot, snapshot.seats, snapshot.button, snapshot.actor, snapshot.street)
         if signature != self.signature:
             self.signature, self.repeats = signature, 1

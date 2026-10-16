@@ -89,6 +89,7 @@ def main(only=None):
                         studio.selected_box = (.1, .1, .2, .2)
                         studio.group.set("pending-font-group")
                         studio.multiplier.set("2")
+                        studio.foreground.set("card")
                         studio.set_zoom(1.1)
                         stage = 2
                     elif stage == 2:
@@ -97,6 +98,7 @@ def main(only=None):
                         assert app.hud_fonts.get(10).cget("size") == practice_font
                         assert studio.selected_box == (.1, .1, .2, .2)
                         assert studio.group.get() == "pending-font-group" and studio.multiplier.get() == "2"
+                        assert studio.foreground.get() == "card"
                         assert (studio.frame.image.tobytes(), tuple(studio.layout.regions.items()), studio.generation,
                                 studio.result.events) == frame_signature
                         studio.select_field()

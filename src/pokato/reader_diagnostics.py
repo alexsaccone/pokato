@@ -171,11 +171,28 @@ def reader_smoke(report_path):
             elif phase == "capture-second":
                 assert studio.result.quality == "reconciled", studio.status.get()
                 report["checks"].append("actual selected-window pixel capture and two-frame live stabilization")
+                visible = CaptureSource(window=NativeWindow(fixture).handle, window_mode="visible")
+                captured = CalibratedReader(first_layout).read(visible.next())
+                assert captured.snapshot and [(s.status, s.stack, s.bet) for s in captured.snapshot.seats] == [(s.status, s.stack, s.bet) for s in frames[0][1].seats], captured.issues
+                visible.close()
+                fixture.photo = ImageTk.PhotoImage(frames[1][0])
+                fixture.winfo_children()[0].configure(image=fixture.photo)
+                fixture.geometry("1200x760+50+50")
+                fixture.update_idletasks()
+                resume_after = time.monotonic()+.4
+                phase = "visible-update"
+            elif phase == "visible-update":
+                visible = CaptureSource(window=NativeWindow(fixture).handle, window_mode="visible")
+                captured = CalibratedReader(first_layout).read(visible.next())
+                visible.close()
+                assert captured.snapshot and [(s.status, s.stack, s.bet) for s in captured.snapshot.seats] == [(s.status, s.stack, s.bet) for s in frames[1][1].seats], captured.issues
+                assert [s.bet for s in captured.snapshot.seats] != [s.bet for s in frames[0][1].seats]
+                report["checks"].append("visible client capture follows a moved window and reads newly rendered chips")
                 x, y = fixture.winfo_rootx(), fixture.winfo_rooty()
                 screen = CaptureSource(bounds=(x, y, x+1200, y+760))
                 screen_reading = CalibratedReader(first_layout).read(screen.next())
                 screen.close()
-                assert screen_reading.snapshot and screen_reading.snapshot.hole == frames[0][1].hole, screen_reading.issues
+                assert screen_reading.snapshot and [(s.status, s.stack, s.bet) for s in screen_reading.snapshot.seats] == [(s.status, s.stack, s.bet) for s in frames[1][1].seats], screen_reading.issues
                 report["checks"].append("explicit screen-region capture of the separate QA table")
                 fixture.destroy()
                 fixture = None
