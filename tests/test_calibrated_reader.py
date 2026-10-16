@@ -66,6 +66,27 @@ class CalibratedTests(unittest.TestCase):
         layout.examples.clear()
         self.assertIsNone(CalibratedReader(layout).read(Frame(image, 0, 0, "fixture")).snapshot)
 
+    def test_explicit_blank_amount_alias_is_per_field_and_preserves_nonzero_reads(self):
+        skin = SyntheticSkin()
+        layout = skin.train()
+        game = Game()
+        game.new_hand()
+        original = skin.render(from_game(game, 0))
+        blank = original.copy()
+        region = layout.regions["seat0.bet"]
+        ImageDraw.Draw(blank).rectangle(region.pixels(blank.size), fill="#182535")
+        reader = CalibratedReader(layout)
+        self.assertIsNone(reader.field(region, blank).value)
+        CalibratedReader.teach(layout, region, blank, "=0")
+        reader = CalibratedReader(layout)
+        self.assertEqual(reader.field(region, blank).value, 0)
+        self.assertEqual(reader.field(region, original).value, 0)
+        sb = layout.regions["seat1.bet"]
+        self.assertEqual(reader.field(sb, original).value, 5)
+        # An alias for one seat cannot silently interpret another blank field.
+        ImageDraw.Draw(blank).rectangle(sb.pixels(blank.size), fill="#182535")
+        self.assertIsNone(reader.field(sb, blank).value)
+
 
 if __name__ == "__main__":
     unittest.main()

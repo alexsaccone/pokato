@@ -90,6 +90,9 @@ def label_for(kind, value):
             raise ValueError("Select only the amount text; label its visible digits, currency and punctuation")
     elif kind == "identity":
         raise ValueError("Identity regions are fingerprinted; they do not need examples")
+    elif kind == "number_state":
+        if value != "0":
+            raise ValueError("Only explicit zero-state aliases are supported")
     return value
 
 
@@ -125,7 +128,7 @@ def compiled(example, contrast):
         if len(parts) != len(example.label):
             raise ValueError("Amount characters touch or the example label does not match the visible text")
         return tuple((char, *normalized(mask)) for char, mask in zip(example.label, parts))
-    if example.kind in ("rank", "suit"):
+    if example.kind in ("rank", "suit", "number_state"):
         image, aspect = normalized(foreground(image, contrast))
     else:
         image, aspect = image.resize((48, 32), Image.Resampling.BILINEAR), 1.
@@ -207,6 +210,15 @@ class CalibratedReader:
 
     @staticmethod
     def teach(layout, region, image, value):
+        # Explicit aliases handle clients that hide zero bets or write ALL IN.
+        # Keep these per field so a blank pot/stack is never silently zero.
+        if region.kind == "number" and str(value).strip().startswith("="):
+            label = str(value).strip()[1:]
+            label_for("number_state", label)
+            example = Example.create(replace(region, kind="number_state", group=region.name), label, region.crop(image))
+            compiled(example, layout.contrast)
+            layout.examples.append(example)
+            return example
         label = label_for(region.kind, value)
         example = Example.create(region, label, region.crop(image))
         compiled(example, layout.contrast)  # Validate segmentation before saving.
@@ -221,6 +233,13 @@ class CalibratedReader:
             value = hashlib.sha256(mask.tobytes()).hexdigest()[:16]
             return FieldRead(region.name, value, 1., 1., region.box, value)
         if region.kind == "number":
+            states = self.templates.get((region.name, "number_state"), ())
+            if states:
+                label, score, separation, issue = choose(*normalized(foreground(crop, self.layout.contrast)),
+                    states, self.layout.threshold, self.layout.margin)
+                if label is not None:
+                    value = parse_amount(label, self.layout.chip_unit, self.layout.decimal_separator, region.multiplier)
+                    return FieldRead(region.name, value, score, separation, region.box, "="+label)
             parts = segments(foreground(crop, self.layout.contrast))
             if not parts:
                 return FieldRead(region.name, None, 0., 0., region.box, issue="Amount is blank")

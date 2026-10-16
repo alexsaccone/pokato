@@ -42,6 +42,7 @@ class App:
         self.archive = Archive(self.history.connection)
         self.archive_key = None
         self.replay_window = None
+        self.reader_window = None
         self.session = uuid.uuid4().hex
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="pokato-analysis")
         self.future = None
@@ -92,6 +93,7 @@ class App:
         self.pause_button = self.button(controls, "Pause bots", self.toggle_pause)
         self.button(controls, "Show coach", self.open_hud)
         self.button(controls, "Review hands", self.open_replay)
+        self.button(controls, "Read table", self.open_table_reader)
         self.control_items = list(controls.winfo_children())
         for widget in self.control_items:
             widget.pack_forget()
@@ -223,6 +225,14 @@ class App:
             from pokato.ui.replay import ReplayWindow
             self.replay_window = ReplayWindow(self)
 
+    def open_table_reader(self):
+        if self.reader_window is not None and not self.reader_window.closed:
+            self.reader_window.chrome.restore()
+        else:
+            from pokato.ui.table_reader import ReaderWindow
+            self.reader_window = ReaderWindow(self)
+        return self.reader_window
+
     def cycle_opacity(self):
         levels = (0.94, 0.88, 1.0)
         current = float(self.hud.attributes("-alpha"))
@@ -311,7 +321,8 @@ class App:
     def bot_tick(self):
         if self.closed:
             return
-        if not self.paused and self.game.actor not in (-1, 0):
+        reader_open = self.reader_window is not None and not self.reader_window.closed
+        if not reader_open and not self.paused and self.game.actor not in (-1, 0):
             self.game.act(*choose_action(self.game))
             self.invalidate("Waiting for your turn…")
             self.draw()
@@ -319,6 +330,9 @@ class App:
 
     def observe(self):
         if self.closed:
+            return
+        if self.reader_window is not None and not self.reader_window.closed:
+            self.root.after(200, self.observe)
             return
         try:
             if not self.root.winfo_viewable() or self.chrome.native.minimized():
@@ -456,6 +470,8 @@ class App:
         if self.closed:
             return
         self.closed = True
+        if self.reader_window is not None:
+            self.reader_window.close(restore=False)
         if self.replay_window is not None:
             self.replay_window.close()
         for job in self.root.tk.call("after", "info"):
@@ -473,12 +489,22 @@ def main():
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--samples", type=int, default=400)
     parser.add_argument("--database", type=Path)
+    parser.add_argument("--reader", action="store_true", help="Open the client-independent table reader")
+    parser.add_argument("--image", type=Path, help="Local image to open in the table reader")
+    parser.add_argument("--layout", type=Path, help="Saved table-reader layout")
     args = parser.parse_args()
     if not 50 <= args.samples <= 10000:
         parser.error("--samples must be between 50 and 10000")
     enable_dpi_awareness()
     root = tk.Tk()
-    App(root, args.seed, args.samples, args.database)
+    app = App(root, args.seed, args.samples, args.database)
+    if args.reader or args.image or args.layout:
+        studio = app.open_table_reader()
+        if args.layout:
+            studio.safe(lambda: studio.load_layout(args.layout))
+        if args.image:
+            from pokato.vision.sources import ImageSource
+            studio.safe(lambda: studio.replace_source(ImageSource([args.image])))
     root.mainloop()
 
 

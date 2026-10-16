@@ -9,7 +9,7 @@ import re
 import uuid
 from PIL import Image
 
-KINDS = ("rank", "suit", "number", "flag", "status", "anchor", "identity")
+KINDS = ("rank", "suit", "number", "number_state", "flag", "status", "anchor", "identity")
 
 
 @dataclass(frozen=True)
