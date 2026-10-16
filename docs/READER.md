@@ -3,9 +3,14 @@
 The existing `Pokato.exe` now ingests local images, recordings, a selected Windows
 window or a selected desktop rectangle. No client identifier, fixed card position,
 simulator event tape, account integration or network request is needed. Recognition
-needs a saved profile for the actual visual skin. ClubWPT Gold and HD Poker
-screenshots have not been supplied or validated; the demo is a synthetic table.
+needs a saved profile for the actual visual skin. ClubWPT Gold has not been
+validated; the demo is a synthetic table.
 External recommendations and Bayesian updates remain withheld in this milestone.
+
+HD Poker 1.9.5 has now been tested with real captures on this workstation. The
+local garden-table calibration, measured results and exact launch instructions
+are in [HD Poker calibration](HD_POKER_CALIBRATION.md). It remains a partial
+calibration, with unknown fields during animations and unsupported states.
 
 ## Readable text and window sizing
 
@@ -43,6 +48,13 @@ The panels and settings dialogs scroll vertically so large controls stay reachab
    labels, borders and symbols out of rank, suit and amount regions.
 5. Enter the visible label and click **Teach example**. Repeat on other frames
    until the relevant ranks, suits, digits and marker states have examples.
+   Choose **Ink** before setting the region: **auto** for the original background
+   estimator; **light** for white amount text; **card** for dark/red ranks and suits
+   on shaded card faces; **color** for saturated markers such as a turn timer.
+   Card mode removes edge-connected background and small detached symbols, so
+   include padding around the entire glyph. Changing ink modes requires new examples.
+   Touching amount characters are saved as a strict whole-text template. These
+   recognize taught strings; unseen strings still need separable digit examples.
 6. **Save layout…** saves portable JSON containing settings, normalized regions
    and labeled PNG crops. **Load layout…** restores it; **Examples…** removes
    bad examples. Save explicitly after edits.
@@ -54,6 +66,13 @@ minimize the studio and keep the HUD outside that rectangle before streaming:
 screen capture sees overlapping windows. Window capture targets the chosen HWND
 and stops if it closes, hides or minimizes. Some GPU/browser surfaces return blank
 window captures; use a screen region or recording instead.
+
+In **Window…**, **Visible client area (GPU games)** reads desktop pixels inside the
+chosen window and follows its moves. This is the working mode for HD Poker;
+native capture returned a stale game frame in testing. Keep the studio minimized
+and the HUD outside calibrated regions. Other windows over those regions obscure
+the input. The visible mode stops on closed/hidden/minimized windows; it does not
+switch capture sources automatically. Native capture remains available in the picker.
 
 ## Required fields
 
@@ -68,12 +87,13 @@ arrangement. Empty seats use status F; amounts still require calibration.
 | `hole0/1.suit` | Suit only: `♣ ♦ ♥ ♠`, or `empty`. |
 | `board0`–`board4` | Separate rank/suit regions with the same rules. Teach blank-card appearances. |
 | `pot` | Amount only; label the visible text, e.g. `$12.50`. |
+| `single_pot` | Optional guard: `yes` for supported single-pot placement, `no` for side pots or unsupported placement. Unknown/false guards withhold the snapshot. |
 | `seatN.stack`, `seatN.bet` | Amount text; teach digits/currency/punctuation. Explicit `=0` examples map this field's blank-zero or ALL IN appearance to zero. |
 | `seatN.status` | Appearance labeled `A` = in hand, `F` = folded/empty, `I` = all-in. Card backs or seat markers work; no fixed text is required. |
 | `seatN.dealer`, `seatN.actor` | Marker appearances labeled `yes` and `no`; teach both per region. |
 | `seatN.identity` | Optional name region; visual fingerprint, not name OCR. A change invalidates this hand's history. |
 
-All fields except identity are required for a complete snapshot. Partial layouts
+All fields except identity and the optional pot-layout guard are required for a complete snapshot. Partial layouts
 still show individual readings. The inspector shows the crop, raw result,
 similarity, runner-up separation and issue. Amber rectangles flag unreadable
 fields; yellow marks the selected region. Double-click a field for a **provisional

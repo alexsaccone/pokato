@@ -8,8 +8,9 @@ opponent behavior, and displays range equity, pot odds and estimated action EV.
 Milestone 5 adds a **client-independent table reader**: open images or recordings,
 or select a Windows window or screen region, then calibrate its visual layout.
 The recognition HUD shows cards, chips, positions and inferred actions. Each
-client skin needs its own regions/examples; ClubWPT Gold and HD Poker presets
-have not been validated. External-mode recommendations remain withheld.
+client skin needs its own regions/examples. Real HD Poker captures have been
+partially calibrated; see [results and local setup](docs/HD_POKER_CALIBRATION.md).
+ClubWPT Gold remains unvalidated. External-mode recommendations remain withheld.
 
 ![Practice table](docs/table-preview.png)
 
