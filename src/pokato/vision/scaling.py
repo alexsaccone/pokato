@@ -2,6 +2,7 @@
 from functools import lru_cache
 from PIL import Image
 from pokato.simulator.layout import WIDTH, HEIGHT, CELL_W, CELL_H, ALPHABET, FIELD_BG, glyph
+from pokato.core.cards import SUIT_SYMBOLS
 
 
 @lru_cache(maxsize=32)
@@ -36,7 +37,7 @@ def alphabet_at(key, offset):
     if key == "marker":
         return "POKATO-V1"[offset]
     if key.startswith(("board", "hole")):
-        return "23456789TJQKA-" if offset == 0 else "cdhs-"
+        return "23456789TJQKA-" if offset == 0 else "cdhs-" + "".join(SUIT_SYMBOLS.values())
     if key.startswith("status"):
         return "AFI"
     if key == "street":

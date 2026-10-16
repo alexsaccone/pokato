@@ -1,11 +1,31 @@
 """Cards are two-character strings, e.g. As, Td, 2c."""
 from collections import Counter
+import re
 
 RANKS = "23456789TJQKA"
 SUITS = "cdhs"
+SUIT_SYMBOLS = {"c": "♣", "d": "♦", "h": "♥", "s": "♠"}
+_SUIT_CODES = str.maketrans({symbol: code for code, symbol in SUIT_SYMBOLS.items()})
+_DISPLAY_CARDS = re.compile(r"(?<![A-Za-z0-9])((?:[2-9TJQKA][cdhs♣♦♥♠]){1,2})(?![A-Za-z0-9])")
 DECK = tuple(r + s for r in RANKS for s in SUITS)
 CATEGORIES = ("High card", "Pair", "Two pair", "Three of a kind", "Straight",
               "Flush", "Full house", "Four of a kind", "Straight flush")
+
+
+def display_card(card):
+    return card[0] + SUIT_SYMBOLS.get(card[1], card[1])
+
+
+def normalize_notation(text):
+    """Accept suit symbols at input boundaries; retain canonical stored codes."""
+    return text.replace("\ufe0f", "").replace("\ufe0e", "").translate(_SUIT_CODES)
+
+
+def display_notation(text):
+    """Format explicit cards/combos without changing suited classes like ATs+."""
+    text = text.replace("\ufe0f", "").replace("\ufe0e", "")
+    return _DISPLAY_CARDS.sub(lambda m: "".join(display_card(m[0][i:i+2])
+                                               for i in range(0, len(m[0]), 2)), text)
 
 
 def validate_cards(cards):

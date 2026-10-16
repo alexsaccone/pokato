@@ -9,6 +9,7 @@ from PIL import ImageGrab
 from .app import App
 from .vision.capture import enable_dpi_awareness
 from .ui.sizing import geometry
+from .core.cards import display_card
 
 
 def river_smoke(report_path, street="R"):
@@ -108,6 +109,8 @@ def river_smoke(report_path, street="R"):
                     if street == "T":
                         assert review.last_results[0].uncertainty == app.advice.uncertainty
                         assert "RIVER CARD / PROBABILITY" in review.output.get("1.0", "end")
+                        output = review.output.get("1.0", "end")
+                        assert all(display_card(r.card)+":" in output for r in app.advice.runouts)
                         report["checks"].append("replay reproduces frozen turn policy sensitivity and card probabilities")
                         report.update(policy_draws=app.advice.uncertainty.draws, runouts=len(app.advice.runouts))
                     phase = "snapshot"
@@ -143,6 +146,9 @@ def river_smoke(report_path, street="R"):
                 pixels = list(center.getdata())
                 assert sum(sum(pixel) > 30 for pixel in pixels) > len(pixels)*.5, "HUD capture is blank"
                 chart = app.runout_chart
+                labels = {chart.itemcget(item, "text") for item in chart.find_all() if chart.type(item) == "text"}
+                picks = sorted(app.advice.runouts, key=lambda r: (r.share, r.card))
+                assert all(display_card(r.card) in labels for r in picks[-3:]+picks[:3])
                 report.update(hud_size=(width, height), card_chart_size=(chart.winfo_width(), chart.winfo_height()),
                               card_chart_requested_height=app.hp(170))
                 x, y = chart.winfo_rootx()-app.hud.winfo_rootx(), chart.winfo_rooty()-app.hud.winfo_rooty()

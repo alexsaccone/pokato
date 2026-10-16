@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
+from pokato.core.cards import SUIT_SYMBOLS, display_card
 
 WIDTH, HEIGHT = 980, 800
 CELL_W, CELL_H = 12, 22
 INK, FIELD_BG = (226, 238, 232), (15, 31, 29)
-ALPHABET = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZcdhs-"
+ALPHABET = " 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZcdhs-" + "".join(SUIT_SYMBOLS.values())
 
 
 @lru_cache(maxsize=32)
@@ -69,5 +70,7 @@ def paint_field(image, key, value):
     value = str(value)
     if len(value) > field.length:
         raise ValueError(f"{key} exceeds supported field width")
+    if key.startswith(("hole", "board")) and len(value) == 2:
+        value = display_card(value)
     for n, char in enumerate(value.ljust(field.length)):
         image.paste(glyph(char), (field.x + n * CELL_W, field.y))

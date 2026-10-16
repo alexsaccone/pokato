@@ -7,6 +7,7 @@ import tkinter as tk
 import uuid
 from PIL import Image, ImageTk
 from pokato.core.game import Game
+from pokato.core.cards import display_card
 from pokato.simulator.bots import choose_action
 from pokato.simulator.render import render, NAMES
 from pokato.simulator.layout import WIDTH, HEIGHT
@@ -365,8 +366,7 @@ class App:
         streets = {"P": "PREFLOP", "F": "FLOP", "T": "TURN", "R": "RIVER", "X": "COMPLETE"}
         position = ["BTN", "SB", "BB", "UTG", "HJ", "CO"][(0 - o.button) % 6]
         self.state_label.configure(text=f"{streets[o.street]}   /   {position}")
-        symbols = {"c": "♣", "d": "♦", "h": "♥", "s": "♠"}
-        pretty = lambda cards: "   ".join(c[0] + symbols[c[1]] for c in cards)
+        pretty = lambda cards: "   ".join(display_card(c) for c in cards)
         self.cards_label.configure(text=pretty(o.hole))
         self.board_label.configure(text=pretty(o.board) or "Board not dealt")
         self.pot_label.configure(text=str(o.pot))

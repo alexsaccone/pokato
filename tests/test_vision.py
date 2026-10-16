@@ -1,14 +1,33 @@
 import unittest
 from PIL import Image, ImageDraw
 from pokato.core.game import Game
+from pokato.core.cards import DECK, SUIT_SYMBOLS
 from pokato.simulator.bots import choose_action
 from pokato.simulator.render import render
-from pokato.simulator.layout import FIELDS
+from pokato.simulator.layout import FIELDS, CELL_W, CELL_H, glyph
 from pokato.vision.reader import Reader, ReadError
 from pokato.vision.tracker import Tracker
 
 
 class VisionTests(unittest.TestCase):
+    def test_all_card_symbols_are_visible_and_read_at_compact_sizes(self):
+        game, reader = Game(), Reader()
+        game.new_hand()
+        while game.street != "R":
+            game.act("K" if game.legal()["check"] else "C")
+        for start in range(0, len(DECK), 7):
+            cards = tuple(DECK[(start+i) % len(DECK)] for i in range(7))
+            game.players[0].hole, game.board = list(cards[:2]), list(cards[2:])
+            frame = render(game)
+            field = FIELDS["hole0"]
+            suit_pixels = frame.crop((field.x+CELL_W, field.y, field.x+2*CELL_W, field.y+CELL_H))
+            self.assertEqual(suit_pixels.tobytes(), glyph(SUIT_SYMBOLS[cards[0][1]]).tobytes())
+            for size in ((490, 400), (637, 520), (980, 800)):
+                with self.subTest(cards=cards, size=size):
+                    observed = reader.read(frame.resize(size, Image.Resampling.NEAREST))
+                    self.assertEqual(observed.hole, cards[:2])
+                    self.assertEqual(observed.board, cards[2:])
+
     def test_reconstruct_complete_hand_from_pixels(self):
         g, reader, tracker = Game(), Reader(), Tracker()
         g.new_hand()

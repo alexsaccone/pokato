@@ -39,7 +39,9 @@ def main():
                     state["original"] = original
                     seat = next(i for i, s in enumerate(original.seats) if i and s.status != "F")
                     state["seat"] = seat
-                    review.range_entries[seat].set("AA")
+                    review.range_entries[seat].set("AsAh")
+                    review.edited_ranges()
+                    assert review.range_entries[seat].get() == "A♠A♥"
                     review.calculate()
                     state["phase"] = "range"
                 elif state["phase"] == "range":
@@ -48,7 +50,7 @@ def main():
                         hand = review.hands[review.hand_index]
                         seq = len(review.snapshots[review.index].events)
                         saved = app.archive.scenario(hand.session, hand.hand, seq)
-                        assert saved["ranges"][str(state["seat"])] == "AA"
+                        assert saved["ranges"][str(state["seat"])] == "AsAh"
                         assert app.archive.snapshots(hand.session, hand.hand)[review.index].observation == state["original"]
                         ImageGrab.grab(window=review.window.winfo_id()).save(output / "replay-smoke.png")
                         review.reset()
@@ -58,6 +60,7 @@ def main():
                         dialog.apply()
                         assert dialog.window.winfo_exists()
                         dialog.vars["hole"].set("As Ah")
+                        assert dialog.vars["hole"].get() == "A♠ A♥"
                         dialog.apply()
                         assert review.scenario_o.hole == ("As", "Ah")
                         assert review.scenario_o.minimum == 0

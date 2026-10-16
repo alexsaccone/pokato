@@ -141,12 +141,14 @@ they do not establish that the edited range is correct.
 | `QQ+` | QQ, KK, AA |
 | `ATs+` | ATs, AJs, AQs, AKs |
 | `AKo` | All offsuit AK combinations |
-| `AsKh:0.5` | One exact combination with relative weight 0.5 |
+| `A♠K♥:0.5` | One exact combination with relative weight 0.5 |
 | `*:1, AA:0` | All combinations except AA; later tokens override earlier ones |
 
 Separate tokens with commas or spaces. Known cards block impossible combinations;
-fully blocked or mutually conflicting opponent ranges produce an error. Explicit
-ranges replace the automatic final range, including its action-history weighting.
+fully blocked or mutually conflicting opponent ranges produce an error. Card suits
+display as ♣ ♦ ♥ ♠ throughout the app. Range and correction inputs also accept
+typed letter suits, converting them for display while retaining compatible saved data.
+Explicit ranges replace the automatic final range, including its action-history weighting.
 They apply only to live opponents at the selected snapshot.
 
 **Correct state…** edits cards and seat amounts in a separate scenario. The board

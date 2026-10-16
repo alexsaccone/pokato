@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from itertools import combinations
 import math
 import re
-from pokato.core.cards import DECK, RANKS, validate_cards
+from pokato.core.cards import DECK, RANKS, validate_cards, normalize_notation
 
 
 def combo_key(cards):
@@ -31,7 +31,7 @@ class ComboRange:
 def parse_range(expression):
     """AA, QQ+, ATs+, AKo, AsKh:0.5, or * (all hands). Last token wins."""
     values = {}
-    for token in re.split(r"[,;\s]+", expression.strip()):
+    for token in re.split(r"[,;\s]+", normalize_notation(expression).strip()):
         if not token:
             continue
         name, separator, raw_weight = token.partition(":")

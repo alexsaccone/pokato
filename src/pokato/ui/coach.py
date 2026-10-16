@@ -1,5 +1,6 @@
 """Compact, non-scrolling essentials with optional supporting detail."""
 import tkinter as tk
+from pokato.core.cards import display_card
 from .window import WindowChrome, BG, TEXT, MUTED, ACCENT
 from .sizing import HudFonts, geometry
 
@@ -172,7 +173,7 @@ def draw_runouts(a):
     for i, row in enumerate(picks):
         y = a.hp(33+i*24)
         color = ACCENT if i < 3 else "#e8b18d"
-        canvas.create_text(a.hp(2), y, text=row.card, anchor="w", fill=TEXT, font=a.hud_fonts.get(9, True))
+        canvas.create_text(a.hp(2), y, text=display_card(row.card), anchor="w", fill=TEXT, font=a.hud_fonts.get(9, True))
         left, right = a.hp(31), width-a.hp(111)
         canvas.create_rectangle(left, y-a.hp(4), right, y+a.hp(4), fill="#293342", outline="")
         canvas.create_rectangle(left, y-a.hp(4), left+max(0, right-left)*row.share, y+a.hp(4), fill=color, outline="")

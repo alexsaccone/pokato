@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from PIL import Image, ImageChops, ImageStat
-from pokato.core.cards import DECK, validate_cards
+from pokato.core.cards import DECK, validate_cards, normalize_notation
 from pokato.core.game import Event
 from pokato.simulator.layout import FIELDS, CELL_W, CELL_H, WIDTH, HEIGHT, ALPHABET, glyph
 from .scaling import templates_at, alphabet_at
@@ -101,8 +101,8 @@ class Reader:
                 raise ValueError("Invalid all-in indicator")
             if actor >= 0 and (seats[actor].status != "A" or seats[actor].stack == 0):
                 raise ValueError("Invalid active seat")
-            hole = tuple(values[f"hole{i}"] for i in range(2))
-            raw_board = [values[f"board{i}"] for i in range(5)]
+            hole = tuple(normalize_notation(values[f"hole{i}"]) for i in range(2))
+            raw_board = [normalize_notation(values[f"board{i}"]) for i in range(5)]
             board = tuple(c for c in raw_board if c != "--")
             if raw_board != list(board) + ["--"] * (5 - len(board)):
                 raise ValueError("Non-contiguous board")

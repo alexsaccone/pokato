@@ -1,6 +1,7 @@
 """Render only public table information plus the hero's hole cards."""
 from PIL import Image, ImageDraw
 from .layout import WIDTH, HEIGHT, SEATS, paint_field, font
+from pokato.core.cards import SUIT_SYMBOLS
 
 NAMES = ["YOU", "Juniper", "Atlas", "Marlow", "Cedar", "Nova"]
 
@@ -42,7 +43,7 @@ def render(game):
         values[f"board{i}"] = game.board[i] if i < len(game.board) else "--"
         if i < len(game.board):
             c = game.board[i]
-            d.text((x + 18, 350), {"h": "♥", "d": "♦", "s": "♠", "c": "♣"}[c[1]],
+            d.text((x + 18, 350), SUIT_SYMBOLS[c[1]],
                    font=font(18), fill="#a43535" if c[1] in "hd" else "#142a24")
     for i in range(2):
         x = 450 + i * 44

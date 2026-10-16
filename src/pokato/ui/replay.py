@@ -6,6 +6,7 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from pokato.analysis.coach import analyze
 from pokato.analysis.ranges import parse_range
+from pokato.core.cards import display_card, display_notation, normalize_notation
 from pokato.replay.render import render_observation
 from pokato.replay.store import observation_from_dict, validate_observation
 from pokato.simulator.render import NAMES
@@ -73,7 +74,7 @@ class ReplayWindow:
         right = tk.Frame(main, bg=BG)
         right.grid(row=0, column=1, sticky="nsew")
         self.label(right, "OPPONENT RANGES", 16, True).pack(anchor="w")
-        self.label(right, "Auto uses evidence saved at this point.\nExamples: QQ+, ATs+, AKo, AsKh:0.5\n* = all combinations; weights 0–1.\nFolded players' ranges have no effect.", color=MUTED).pack(fill="x", pady=6)
+        self.label(right, "Auto uses evidence saved at this point.\nExamples: QQ+, ATs+, AKo, A♠K♥:0.5\n* = all combinations; weights 0–1.\nFolded players' ranges have no effect.", color=MUTED).pack(fill="x", pady=6)
         self.range_entries = {}
         for seat in range(1, 6):
             self.label(right, NAMES[seat], 14).pack(anchor="w", pady=(3, 0))
@@ -144,6 +145,10 @@ class ReplayWindow:
         self.calculate_button.configure(state="normal")
 
     def edited_ranges(self, event=None):
+        for var in self.range_entries.values():
+            formatted = display_notation(var.get())
+            if formatted != var.get():
+                var.set(formatted)
         self.invalidate()
         self.status.configure(text="Range edits pending. Calculate to compare and save.")
 
@@ -157,7 +162,7 @@ class ReplayWindow:
         saved = self.archive.scenario(hand.session, hand.hand, len(snapshot.events))
         self.scenario_o = observation_from_dict(saved["observation"]) if saved else snapshot.observation
         for seat, var in self.range_entries.items():
-            var.set(saved["ranges"].get(str(seat), "Auto") if saved else "Auto")
+            var.set(display_notation(saved["ranges"].get(str(seat), "Auto")) if saved else "Auto")
         o = self.scenario_o
         self.heading.configure(text=f"Hand #{o.hand} · {'saved scenario' if saved else 'original observation'}")
         self.update_position()
@@ -198,7 +203,8 @@ class ReplayWindow:
         try:
             ranges, expressions = {}, {}
             for seat, var in self.range_entries.items():
-                expression = var.get().strip()
+                var.set(display_notation(var.get()))
+                expression = normalize_notation(var.get().strip())
                 expressions[str(seat)] = expression or "Auto"
                 if expression and expression.lower() != "auto":
                     ranges[seat] = parse_range(expression)
@@ -281,7 +287,7 @@ class ReplayWindow:
         if scenario.runouts:
             lines.extend(["", "RIVER CARD / PROBABILITY / SHOWDOWN EQUITY", "Current range, before future betting; no sampling error."])
             for r in sorted(scenario.runouts, key=lambda r: r.share, reverse=True):
-                lines.append(f"{r.card}: {r.probability:.2%} / {r.share:.1%}")
+                lines.append(f"{display_card(r.card)}: {r.probability:.2%} / {r.share:.1%}")
         lines.extend(["", scenario.assumptions])
         self.write(self.output, "\n".join(lines))
         self.last_results = (original, scenario)
@@ -320,9 +326,15 @@ class CorrectionDialog:
         frame.pack(fill="both", expand=True)
         review.label(frame, "Edit scenario only · original observations stay unchanged", 17, True).grid(row=0, column=0, columnspan=5, pady=8)
         self.vars = {}
-        for row, (key, value) in enumerate((("hole", " ".join(self.original.hole)), ("board", " ".join(self.original.board))), 1):
+        for row, (key, value) in enumerate((("hole", display_notation(" ".join(self.original.hole))),
+                                          ("board", display_notation(" ".join(self.original.board)))), 1):
             review.label(frame, key.title()).grid(row=row, column=0, sticky="w")
             self.vars[key] = tk.StringVar(value=value)
+            def format_input(*args, var=self.vars[key]):
+                formatted = display_notation(var.get())
+                if formatted != var.get():
+                    var.set(formatted)
+            self.vars[key].trace_add("write", format_input)
             tk.Entry(frame, textvariable=self.vars[key], width=36,
                      font=("Consolas", -round(15*review.scale))).grid(row=row, column=1, columnspan=4, sticky="ew", pady=5)
         for col, title in enumerate(("Seat", "Status A/F/I", "Stack", "Street bet", "Total in pot")):
@@ -344,8 +356,8 @@ class CorrectionDialog:
     def apply(self):
         try:
             from pokato.vision.reader import Seat
-            hole = tuple(self.vars["hole"].get().split())
-            board = tuple(self.vars["board"].get().split())
+            hole = tuple(normalize_notation(self.vars["hole"].get()).split())
+            board = tuple(normalize_notation(self.vars["board"].get()).split())
             if len(board) != len(self.original.board):
                 raise ValueError("Keep the original snapshot's board length")
             seats = tuple(Seat(row[0].get().strip().upper(), *(int(var.get()) for var in row[1:])) for row in self.seats)

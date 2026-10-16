@@ -1,9 +1,16 @@
 import random
 import unittest
+from pokato.core.cards import display_card, display_notation, normalize_notation
 from pokato.analysis.ranges import parse_range, Distribution, joint_holes
 
 
 class RangeTests(unittest.TestCase):
+    def test_symbol_inputs_preserve_exact_combos_and_suited_classes(self):
+        self.assertEqual(parse_range("A♠K♥:0.5, Q♣Q♦"), parse_range("AsKh:0.5, QcQd"))
+        self.assertEqual(display_notation("ATs+, AKo, AsKh:0.5, Qc Qd"), "ATs+, AKo, A♠K♥:0.5, Q♣ Q♦")
+        self.assertEqual(normalize_notation("A♠\ufe0f K♥"), "As Kh")
+        self.assertEqual(display_card("--"), "--")
+
     def test_classes_weights_and_plus(self):
         self.assertEqual(len(parse_range("AA").weights), 6)
         self.assertEqual(len(parse_range("AKs").weights), 4)
