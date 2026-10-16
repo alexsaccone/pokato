@@ -2,12 +2,42 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 from PIL import Image
 from pokato.vision.layouts import Layout, Region, Example
 from pokato.vision.sources import ImageSource, VideoSource, CaptureSource, rgb_image
 
 
 class IngestTests(unittest.TestCase):
+    def test_visible_client_capture_follows_window_and_avoids_native_render_surface(self):
+        api = Mock()
+        api.IsIconic.return_value = False
+        def rectangle(handle, pointer):
+            rect = pointer._obj
+            rect.left, rect.top, rect.right, rect.bottom = 0, 0, 320, 200
+            return True
+        positions = iter(((10, 30), (-200, 80)))
+        def origin(handle, pointer):
+            pointer._obj.x, pointer._obj.y = next(positions)
+            return True
+        api.GetWindowRect.side_effect = api.GetClientRect.side_effect = rectangle
+        api.ClientToScreen.side_effect = origin
+        with patch('pokato.vision.sources.windows_api', return_value=api), patch(
+                'pokato.vision.sources.ImageGrab.grab', side_effect=[
+                    Image.new('RGB', (320, 200), 'red'), Image.new('RGB', (320, 200), 'blue')]) as grab:
+            source = CaptureSource(window=123, window_mode='visible')
+            self.assertEqual(source.next().image.getpixel((0, 0)), (255, 0, 0))
+            self.assertEqual(source.next().image.getpixel((0, 0)), (0, 0, 255))
+            self.assertEqual(grab.call_args_list[0].kwargs, {'bbox': (10, 30, 330, 230), 'all_screens': True})
+            self.assertEqual(grab.call_args_list[1].kwargs, {'bbox': (-200, 80, 120, 280), 'all_screens': True})
+            api.IsIconic.return_value = True
+            with self.assertRaisesRegex(ValueError, 'minimized'):
+                source.next()
+            self.assertEqual(grab.call_count, 2)
+        for options in ({'window': 123, 'window_mode': 'invalid'}, {'bounds': (0, 0, 40, 40), 'window_mode': 'visible'}):
+            with self.assertRaises(ValueError):
+                CaptureSource(**options)
+
     def test_different_image_formats_and_aspects_preserve_pixels_and_order(self):
         with tempfile.TemporaryDirectory() as folder:
             paths = [Path(folder)/name for name in ("wide.png", "tall.bmp", "square.webp")]

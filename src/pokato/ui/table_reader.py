@@ -766,10 +766,16 @@ class ReaderWindow:
         listing = self.list_widget(dialog.body)
         for _, title in windows:
             listing.insert("end", title)
+        mode = tk.StringVar(value="Visible client area (GPU games)")
+        ttk.Combobox(dialog.footer, textvariable=mode, state="readonly", width=38,
+                     values=("Visible client area (GPU games)", "Native window capture")).pack(fill="x", pady=self.px(4))
+        ttk.Label(dialog.footer, text="Visible capture: keep the table unobstructed. Move Pokato and its HUD away from it.",
+                  wraplength=self.px(700)).pack(fill="x")
         def choose():
             selected = listing.curselection()
             if selected:
-                self.replace_source(CaptureSource(window=windows[selected[0]][0]))
+                self.replace_source(CaptureSource(window=windows[selected[0]][0],
+                    window_mode="visible" if mode.get().startswith("Visible") else "native"))
                 dialog.destroy()
         ttk.Button(dialog.footer, text="Capture selected window", command=lambda: self.safe(choose)).pack(pady=self.px(8))
         return self.finish_dialog(dialog)

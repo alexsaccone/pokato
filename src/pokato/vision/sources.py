@@ -117,6 +117,8 @@ def windows_api():
     api = ctypes.windll.user32
     api.IsWindow.argtypes = api.IsWindowVisible.argtypes = api.IsIconic.argtypes = [wintypes.HWND]
     api.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    api.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
+    api.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
     api.GetWindowTextLengthW.argtypes = [wintypes.HWND]
     api.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
     return api
@@ -144,14 +146,17 @@ def list_windows():
 class CaptureSource:
     live = True
 
-    def __init__(self, *, window=None, bounds=None):
+    def __init__(self, *, window=None, bounds=None, window_mode="native"):
         if (window is None) == (bounds is None):
             raise ValueError("Choose one window or one screen region")
+        if window_mode not in ("native", "visible") or (bounds is not None and window_mode != "native"):
+            raise ValueError("Choose native or visible window capture")
         if bounds is not None and (len(bounds) != 4 or any(type(v) is not int for v in bounds) or
                                    bounds[0] >= bounds[2] or bounds[1] >= bounds[3] or
                                    (bounds[2]-bounds[0])*(bounds[3]-bounds[1]) > MAX_PIXELS):
             raise ValueError("Invalid screen region")
         self.window, self.bounds = window, bounds
+        self.window_mode = window_mode
         self.index, self.started = 0, time.monotonic()
         self.closed = False
 
@@ -167,8 +172,22 @@ class CaptureSource:
                 raise ValueError("Could not read selected window bounds")
             if (rect.right-rect.left)*(rect.bottom-rect.top) > MAX_PIXELS:
                 raise ValueError("Selected window exceeds 40 megapixels")
-            image = ImageGrab.grab(window=self.window)
-            source = "Selected window"
+            if self.window_mode == "visible":
+                # GPU games can return an old render surface through PrintWindow.
+                # Capture the visible client pixels instead, following window moves.
+                origin = wintypes.POINT()
+                if not api.GetClientRect(self.window, ctypes.byref(rect)) or not api.ClientToScreen(self.window, ctypes.byref(origin)):
+                    raise ValueError("Could not read selected window client bounds")
+                if rect.right <= 0 or rect.bottom <= 0:
+                    raise ValueError("Selected window has an empty client area")
+                if rect.right*rect.bottom > MAX_PIXELS:
+                    raise ValueError("Selected window exceeds 40 megapixels")
+                bounds = (origin.x, origin.y, origin.x+rect.right, origin.y+rect.bottom)
+                image = ImageGrab.grab(bbox=bounds, all_screens=True)
+                source = "Visible window client area (keep unobstructed)"
+            else:
+                image = ImageGrab.grab(window=self.window)
+                source = "Selected window"
         else:
             image = ImageGrab.grab(bbox=self.bounds, all_screens=True)
             source = "Selected screen region"
