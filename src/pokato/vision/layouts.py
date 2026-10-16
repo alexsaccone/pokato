@@ -18,6 +18,7 @@ class Region:
     box: tuple
     kind: str
     group: str = ""
+    multiplier: str = "1"
 
     def __post_init__(self):
         if not isinstance(self.name, str) or not re.fullmatch(r"[a-z][a-z0-9_.]{0,63}", self.name):
@@ -30,6 +31,13 @@ class Region:
             raise ValueError("Select a nonempty region inside the image")
         if not isinstance(self.group, str) or len(self.group) > 80:
             raise ValueError("Invalid template group")
+        from decimal import Decimal, InvalidOperation
+        try:
+            value = Decimal(self.multiplier)
+        except (InvalidOperation, TypeError):
+            raise ValueError("Amount multiplier must be positive") from None
+        if not value.is_finite() or not 0 < value <= 1000000:
+            raise ValueError("Amount multiplier must be positive")
 
     @property
     def template_group(self):
@@ -85,6 +93,7 @@ class Layout:
     threshold: float = .94
     margin: float = .025
     contrast: int = 30
+    pot_includes_bets: bool = True
     regions: dict = field(default_factory=dict)
     examples: list = field(default_factory=list)
 
@@ -110,6 +119,8 @@ class Layout:
             raise ValueError("Invalid recognition thresholds")
         if type(self.contrast) is not int or not 1 <= self.contrast <= 254:
             raise ValueError("Invalid foreground contrast")
+        if type(self.pot_includes_bets) is not bool:
+            raise ValueError("Pot convention must be true or false")
         if len(self.regions) > 150 or len(self.examples) > 2000:
             raise ValueError("Calibration is too large")
         if any(key != region.name for key, region in self.regions.items()):
@@ -125,10 +136,13 @@ class Layout:
         self.validate()
         data = asdict(self)
         data["version"] = 1
+        payload = json.dumps(data, ensure_ascii=False, indent=2)
+        if len(payload.encode("utf-8")) > 16000000:
+            raise ValueError("Layout file is too large; remove unused examples")
         path = Path(path)
         temporary = path.with_name(path.name+"."+uuid.uuid4().hex+".tmp")
         try:
-            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.write_text(payload, encoding="utf-8")
             temporary.replace(path)
         finally:
             temporary.unlink(missing_ok=True)
