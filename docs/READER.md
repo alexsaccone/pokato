@@ -1,5 +1,9 @@
 # Table reader · milestone 5
 
+**Version 0.6.0 starts with the [automatic HUD](AUTOMATIC_READER.md): open Pokato
+and click Start analysis.** The manual calibration workflow below is optional,
+available through **⋯ → Advanced calibration tools** or `--reader`.
+
 The existing `Pokato.exe` now ingests local images, recordings, a selected Windows
 window or a selected desktop rectangle. No client identifier, fixed card position,
 simulator event tape, account integration or network request is needed. Recognition

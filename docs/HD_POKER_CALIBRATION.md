@@ -1,5 +1,10 @@
 # HD Poker calibration · 0.5.2
 
+**Version 0.6.0 no longer needs this manual profile to start reading HD Poker.**
+Open Pokato and click **Start analysis**. See the [automatic reader](AUTOMATIC_READER.md)
+for current behavior and measured results. This document records the optional
+manual calibration workflow from 0.5.2.
+
 Real HD Poker 1.9.5 frames were captured locally on 2026-10-16: Windows,
 one nine-seat garden table, 250/500 play-money blinds, 3812 × 2138 client pixels.
 The reader remains client-independent; all HD Poker positions and examples live

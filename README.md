@@ -1,25 +1,34 @@
 # Pokato
 
-A Windows desktop Texas Hold'em practice table with a screen-reading coach.
-Play one six-seat table against five simulated opponents. A floating HUD reads
-the table's **actual rendered pixels**, reconstructs actions, tracks observed
-opponent behavior, and displays range equity, pot odds and estimated action EV.
+A Windows Texas Hold'em HUD with automatic local screen reading.
 
-Milestone 5 adds a **client-independent table reader**: open images or recordings,
-or select a Windows window or screen region, then calibrate its visual layout.
-The recognition HUD shows cards, chips, positions and inferred actions. Each
-client skin needs its own regions/examples. Real HD Poker captures have been
-partially calibrated; see [results and local setup](docs/HD_POKER_CALIBRATION.md).
-ClubWPT Gold remains unvalidated. External-mode recommendations remain withheld.
+**Open `dist\Pokato.exe` → click Start analysis.** Keep one poker table visible.
+Pokato finds cards, the board, displayed pots and player stacks without selecting
+a window, drawing regions, teaching examples or loading a client profile.
+**Stop analysis** ends capture and immediately clears the readings.
 
-![Practice table](docs/table-preview.png)
+Version 0.6.0 opens only the HUD. OCR models are included in the executable and
+run locally; no API key, model download or GPU is required. Screens are analyzed
+in memory, not saved as a recording. Use **A− / A+** for text size and the **⋯**
+menu for screenshots, the practice table or optional advanced calibration tools.
+See [automatic reader behavior and validation](docs/AUTOMATIC_READER.md).
 
-[Preview the floating coach](docs/hud-preview.png).
+Detection adapts to card positions and fonts; it does not guarantee recognition
+of every skin. Tiny, faded, overlapping or unusual cards may remain unreadable.
+Ambiguous hands are labeled or withheld. External-mode strategy recommendations
+still await verified action-history integration.
+
+The optional practice table has five simulated opponents and a separate coach
+with opponent adaptation, range equity, pot odds and modeled action EVs.
+
+![Automatic HUD](docs/automatic-preview.png)
+
+[Preview the optional practice coach](docs/hud-preview.png).
 
 ## Run on Windows
 
 For the standalone build, double-click **`dist\Pokato.exe`**. It includes Python,
-Tk, Pillow, OpenCV/NumPy, and the application; no installation or console window is required.
+Tk, Pillow, OpenCV/NumPy, ONNX Runtime, OCR models and the application; no installation or console window is required.
 You can move that single file to another folder. Statistics still live under
 your user profile, so the executable's folder does not need to be writable.
 This is the one app for all features, including Bayesian turn/river analysis and hand
@@ -27,7 +36,7 @@ review and the table reader. Future builds update this same file; close Pokato b
 
 To run from source:
 
-Requires Python **3.10+** with Tk. On this workstation, plain `python` selects
+Requires Python **3.11+** with Tk. On this workstation, plain `python` selects
 3.8, so select 3.12 explicitly:
 
 ```powershell
@@ -40,8 +49,14 @@ No API key, server, account, or GPU is required. Pillow handles images and scree
 capture; headless OpenCV with NumPy decodes local recordings. The standard
 Windows Python installer includes Tk.
 
+### Optional practice mode
+
+![Practice table](docs/table-preview.png)
+
+Choose **⋯ → Practice table**, or run:
+
 ```powershell
-.\.venv\Scripts\python.exe -m pokato --seed 42 --samples 800 --database .pokato\practice.sqlite3
+.\.venv\Scripts\python.exe -m pokato --practice --seed 42 --samples 800 --database .pokato\practice.sqlite3
 ```
 
 - **Fold / Check / Call / Raise:** act when the gold outline reaches YOU.
@@ -61,7 +76,7 @@ or exits the table. **Show coach** reopens a hidden or minimized HUD.
 The coach starts at 94% opacity. Click **94%** in its footer to cycle between
 88%, 100%, and 94%.
 
-The default HUD targets **7% of the monitor's usable area**: roughly **960 × 640**
+The practice HUD targets **7% of the monitor's usable area**: roughly **960 × 640**
 on a 3840 × 2400 laptop after allowing for the taskbar. Cards and board, position,
 pot, call cost, equity, break-even pot odds, recommendation, and action EVs are
 visible together without scrolling. Smaller screens use a readable minimum.
@@ -229,7 +244,12 @@ seconds to calculate; the UI stays available and rejects results from stale turn
 The same `dist\Pokato.exe` supports `--self-test-turn <absolute-report-path>`.
 It also retains the earlier self-test modes and hand-review features.
 
-## Client-independent table reader (milestone 5)
+## Optional manual table reader (milestone 5)
+
+Version 0.6.0 uses the [automatic HUD](docs/AUTOMATIC_READER.md) by default.
+The tools below remain available through **⋯ → Advanced calibration tools**
+for inspecting recordings and troubleshooting unusual skins. They are not
+required to start automatic analysis.
 
 The reader, recognition HUD and calibration dialogs scale for your display.
 Use **A− / A+ / Reset**, **Ctrl + / Ctrl − / Ctrl 0**, or **Ctrl + mouse wheel**
@@ -285,6 +305,8 @@ reader's fonts, dialogs, saved zoom and scrolling at common screen sizes.
 
 ```powershell
 .\.venv\Scripts\python.exe scripts/validate.py
+.\.venv\Scripts\python.exe scripts/automatic_smoke.py
+.\.venv\Scripts\python.exe scripts/automatic_readability_smoke.py
 .\.venv\Scripts\python.exe scripts/desktop_smoke.py
 .\.venv\Scripts\python.exe scripts/window_smoke.py
 .\.venv\Scripts\python.exe scripts/readability_smoke.py
@@ -298,7 +320,7 @@ Unit tests need no display. The smoke check opens and closes the local UI,
 captures its Windows pixels, verifies the hand and HUD, and checks immediate
 advice invalidation after an action. It writes ignored QA images/JSON under
 `artifacts/` and requires an interactive desktop. GitHub Actions is configured
-for unit tests on Windows with Python 3.10, 3.12, and 3.14.
+for unit tests on Windows with Python 3.11, 3.12, and 3.14.
 The window smoke check exercises custom drag/resize gestures, maximize/restore,
 minimize, transparency controls, HUD reflow, and recognition after table resizing.
 The readability check opens real widgets with simulated 768p/1080p work areas
@@ -313,7 +335,8 @@ sensitivity, deterministic frozen replay and immediate advice/chart invalidation
 The reader check covers calibration edits, two independent skins, image/video
 decoding, real window/region capture of its own fixture, input switching,
 manual provenance, normalized export and stale-state clearing. Reader accuracy
-benchmarks use synthetic skins; no real-client accuracy claim is made.
+benchmarks use synthetic skins. The automatic reader's separate HD Poker
+capture results and their limited scope are in [automatic validation](docs/AUTOMATIC_READER.md).
 Numerical tests independently enumerate five-card hands and distribute chips
 one at a time; random fixtures compare these references with production hand
 ranks and payouts. A turn-runout fixture checks sampled payouts against exact

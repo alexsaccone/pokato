@@ -6,7 +6,7 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $builtExecutable = Join-Path $projectRoot 'dist\Pokato.exe'
 $buildPython = Join-Path $projectRoot '.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $buildPython)) {
-    throw 'Create .venv with Python 3.10+ and install the build extra first. See README.md.'
+    throw 'Create .venv with Python 3.11+ and install the build extra first. See README.md.'
 }
 $runningApp = Get-Process -Name Pokato -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $builtExecutable }
@@ -16,7 +16,7 @@ if ($runningApp) {
 Push-Location -LiteralPath $projectRoot
 try {
     $buildManifest = Join-Path $projectRoot 'packaging\pokato.manifest'
-    & $buildPython -m PyInstaller --noconfirm --onefile --windowed --noupx --name Pokato --icon NONE --paths src --copy-metadata opencv-python-headless --copy-metadata numpy --manifest $buildManifest --specpath build scripts/launch.py
+    & $buildPython -m PyInstaller --noconfirm --onefile --windowed --noupx --name Pokato --icon NONE --paths src --copy-metadata opencv-python-headless --copy-metadata numpy --copy-metadata rapidocr --copy-metadata onnxruntime --collect-data rapidocr --collect-data onnxruntime --collect-data pokato --collect-binaries onnxruntime --hidden-import rapidocr.inference_engine.onnxruntime --manifest $buildManifest --specpath build scripts/launch.py
     if ($LASTEXITCODE -ne 0) { throw 'Executable build failed.' }
     if (-not (Test-Path -LiteralPath $builtExecutable)) { throw 'Build did not produce Pokato.exe.' }
     Get-Item -LiteralPath $builtExecutable | Select-Object FullName, Length

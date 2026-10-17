@@ -206,3 +206,31 @@ Validation: 85 unit tests, five reader readability cases including 4K/250% and
 200% text zoom, five practice readability cases, actual settings-dialog pixels,
 and the packaged reader/capture/export self-test. The same `dist\Pokato.exe`
 is rebuilt; README previews show the larger UI.
+
+## Automatic detection and HUD-only startup: version 0.6.0
+
+Three dependency-ordered local commits:
+
+1. `b249b68 feat(vision): read poker screens automatically with local OCR`
+   — offline pretrained text recognition, card geometry and suit recognition,
+   automatic board/hand grouping, conservative hero anchoring, pot/stack reading,
+   full-desktop capture, independent client fixtures and model/runtime notices.
+   ONNX Runtime requires Python 3.11+, reflected in project metadata and CI.
+2. `ddbfb99 feat(ui): launch a single HUD with one-click screen analysis`
+   — default HUD-only launch, Start/Stop, capture exclusion, background inference,
+   stale-session rejection, readable zoom/scrolling and optional practice/manual
+   tools behind the menu. Explicit `--practice` retains the simulator launch.
+3. `test: package and document automatic screen analysis`
+   — actual-desktop Start/Stop/restart diagnostics, frozen offline OCR validation,
+   five display/DPI cases, reusable local labeled-image benchmark, bundled models,
+   notices, diagnostic fixture and updated single `dist\Pokato.exe`.
+
+Validation: 102 unit tests; source and frozen automatic desktop smoke; five HUD
+readability cases; packaged manual-reader regression. The automatic benchmark
+read all 19 board cards in ten local HD Poker captures, with 14 correct and six
+withheld hole cards, and no incorrect accepted cards. Two independent fictional
+clients cover different fonts, card positions and four-color decks. These small
+corpora do not establish universal skin support. External action reconstruction
+and recommendation integration remain outstanding in the automatic pipeline.
+
+Binary files and private captures/reports remain ignored. Commits are local.
