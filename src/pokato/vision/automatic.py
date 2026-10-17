@@ -36,6 +36,10 @@ class AutoReading:
     table_found: bool = False
     source: str = ''
     timestamp: float = 0.
+    hand_views: tuple = ()
+    image_size: tuple = ()
+    hand_status: str = ''
+    hand_held: bool = False
 
 
 def amount(text, label=''):
@@ -60,7 +64,7 @@ def center(box):
     return (box[0]+box[2])/2, (box[1]+box[3])/2
 
 
-def arrange(cards):
+def card_rows(cards):
     rows = []
     for card in sorted(cards, key=lambda c: center(c.box)[0]):
         h = card.box[3]-card.box[1]
@@ -71,6 +75,15 @@ def arrange(cards):
             eligible[0].append(card)
         else:
             rows.append([card])
+    return tuple(tuple(row) for row in rows)
+
+
+def hand_pairs(cards):
+    return tuple(row for row in card_rows(cards) if len(row) == 2)
+
+
+def arrange(cards):
+    rows = card_rows(cards)
     boards = [row for row in rows if 3 <= len(row) <= 5 and sum(c.value is not None for c in row) >= 2]
     if len(boards) > 1:
         return (), (), ('Multiple possible boards; keep one table visible',)
@@ -91,8 +104,11 @@ def arrange(cards):
         if len(expanded) > 5:
             return (), (), ('Board spacing is ambiguous; waiting for clearer cards',)
         board = tuple(expanded)
-    pairs = [tuple(row) for row in rows if len(row) == 2 and any(c.value for c in row)]
-    pairs.sort(key=lambda row: sum((c.box[2]-c.box[0])*(c.box[3]-c.box[1]) for c in row), reverse=True)
+    pairs = [tuple(row) for row in rows if len(row) == 2]
+    # A legible header pair is preferable to a larger, partly obscured pair.
+    pairs.sort(key=lambda row: (sum(c.value is not None for c in row),
+                               sum(c.score for c in row),
+                               sum((c.box[2]-c.box[0])*(c.box[3]-c.box[1]) for c in row)), reverse=True)
     if not pairs:
         return board, (), ()
     hand = pairs[0]
@@ -183,8 +199,8 @@ class AutomaticReader:
                     h = max(c.box[3]-c.box[1] for c in hand)
                     if abs(x-hx) < h*2 and abs(y-hy) < h*3:
                         hero = True
-            pairs = [c for c in cards if c not in hand and c not in board and c.value]
-            if all(any(other.value == own.value for other in pairs) for own in hand):
+            if any(pair != hand and tuple(c.value for c in pair) == tuple(c.value for c in hand)
+                   for pair in hand_pairs(cards)):
                 hero = True
         known = [c.value for c in (*board, *hand) if c.value]
         if len(set(known)) != len(known):
@@ -193,7 +209,8 @@ class AutomaticReader:
         poker_words = any(re.search(r'\b(pot|fold|folded|raise|blinds|check|call)\b', t.text, re.I) for t in texts)
         context = bool(pots) or len(players) >= 2 or poker_words
         found = bool((board or hand or (len(players) >= 2 and poker_words)) and context and not any('Multiple' in issue for issue in issues))
-        return AutoReading(board, hand, players, pots, hero, issues, found, frame.source, frame.timestamp)
+        return AutoReading(board, hand, players, pots, hero, issues, found, frame.source, frame.timestamp,
+                           hand_pairs(cards), frame.image.size)
 
 
 @dataclass(frozen=True)
@@ -202,6 +219,7 @@ class Card:
     rank: object
     suit: object
     score: float
+    visual: bytes = b''
 
     @property
     def value(self):
@@ -210,7 +228,10 @@ class Card:
 
 def ink(image):
     rgb = np.asarray(image.convert('RGB')).astype(np.int16)
-    mask = ((rgb.max(axis=2) < 175) | ((rgb.max(axis=2)-rgb.min(axis=2) > 65) &
+    neutral = rgb.max(axis=2)-rgb.min(axis=2) < 35
+    background = np.percentile(rgb.max(axis=2)[neutral], 80) if neutral.any() else 225
+    dark_limit = min(175, background-45)
+    mask = ((rgb.max(axis=2) < dark_limit) | ((rgb.max(axis=2)-rgb.min(axis=2) > 65) &
              (rgb.min(axis=2) < 170))).astype('uint8')*255
     # Remove the card edge before extracting ink. A one-pixel bridge from a
     # shadow/chip to a suit must not erase the entire suit component.
@@ -226,26 +247,45 @@ def card_parts(face):
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask, 8)
     w, h = face.size
     parts = [(i, *stats[i]) for i in range(1, count) if stats[i, 4] >= 8]
-    upper = [p for p in parts if p[2] < h*.45 and p[1] < w*.62 and p[4] > h*.13]
+    upper = [p for p in parts if p[2] < h*.45 and p[1] < w*.62 and
+             h*.13 < p[4] < h*.65 and p[3] < w*.7]
     if not upper:
         return None, None
-    first = max(upper, key=lambda p: p[4])
-    rank = [p for p in upper if abs(p[2]-first[2]) < first[4]*.3 and p[4] >= first[4]*.65]
+    # The rank is the upper glyph, not the tallest glyph. On fanned cards a
+    # large heart can be taller than the A immediately above it.
+    first = min(upper, key=lambda p: p[2]/h+.5*p[1]/w)
+    rank = [p for p in upper if abs(p[2]-first[2]) < first[4]*.3 and p[4] >= first[4]*.8]
     # Small corner suits are shorter than rank glyphs, including a two-digit 10.
     x0, y0 = min(p[1] for p in rank), min(p[2] for p in rank)
     x1, y1 = max(p[1]+p[3] for p in rank), max(p[2]+p[4] for p in rank)
     rank_image = Image.new('RGB', (max(60, (x1-x0)*2+24), (y1-y0)*2+24), 'white')
     glyph = Image.fromarray(255-mask[y0:y1, x0:x1]).convert('RGB').resize(((x1-x0)*2, (y1-y0)*2))
     rank_image.paste(glyph, (12, 12))
-    lower = [p for p in parts if p[0] not in {r[0] for r in rank} and p[2] >= y0+first[4]*.65 and p[4] > h*.08]
+    lower = [p for p in parts if p[0] not in {r[0] for r in rank} and
+             p[2] >= y1-first[4]*.15 and p[4] > h*.08 and
+             p[3] < w*.8 and p[4] < h*.65]
     if not lower:
         return rank_image, None
-    suit = max(lower, key=lambda p: p[5])
+    # Choose the first suit under the rank. A FOLDED banner or central artwork
+    # must not replace the small corner suit.
+    suit = min(lower, key=lambda p: (p[2], -p[5]))
+    main_suit = Image.fromarray((labels == suit[0]).astype('uint8')*255)
+    main_suit = main_suit.crop(main_suit.getbbox())
+    if read_suit(main_suit)[0] is not None:
+        return rank_image, main_suit
     selected = {suit[0]}
-    for part in lower:
+    # A tiny disconnected stem can be shorter than the minimum size used to
+    # choose the main suit. Include those pieces, but exclude rank glyphs and
+    # full-height banner letters.
+    for part in parts:
+        if part[0] in {r[0] for r in rank}:
+            continue
         horizontal_gap = max(0, max(part[1], suit[1])-min(part[1]+part[3], suit[1]+suit[3]))
         vertical_gap = max(0, max(part[2], suit[2])-min(part[2]+part[4], suit[2]+suit[4]))
-        if horizontal_gap == 0 and vertical_gap < max(part[4], suit[4])*.25:
+        centered = abs(part[1]+part[3]/2-(suit[1]+suit[3]/2)) < suit[3]*.25
+        if (horizontal_gap == 0 and centered and part[2] >= suit[2]+suit[4]-2 and
+                vertical_gap <= max(2, suit[4]*.25) and
+                part[4] < suit[4]*.5 and part[5] < suit[5]*.4):
             selected.add(part[0])
     suit_image = Image.fromarray(np.isin(labels, tuple(selected)).astype('uint8')*255)
     suit_image = suit_image.crop(suit_image.getbbox())
@@ -288,7 +328,7 @@ def read_suit(mask):
     points = []
     if defects is not None:
         for _, _, far, depth in defects[:, 0, :]:
-            if depth/256 >= max(mask.size)*.08:
+            if depth/256 >= max(mask.size)*.055:
                 x, y = contour[far, 0]
                 points.append(((x-3)/mask.width, (y-3)/mask.height))
     middle = [p for p in points if .15 < p[1] < .65]
@@ -304,6 +344,25 @@ def read_suit(mask):
         label = 'd'
     score = scores.get(label, 0.)
     return (label if score >= .78 else None), score
+
+
+def face_variants(rgb, quad):
+    """Keep glyph proportions; retry clipped faces below an overlaid banner."""
+    width = (np.linalg.norm(quad[1]-quad[0])+np.linalg.norm(quad[2]-quad[3]))/2
+    height = (np.linalg.norm(quad[3]-quad[0])+np.linalg.norm(quad[2]-quad[1]))/2
+    variants = [quad]
+    if width/height > .82:
+        extended = quad.copy()
+        factor = min(1.8, width/(height*.65))
+        extended[2] = quad[1]+(quad[2]-quad[1])*factor
+        extended[3] = quad[0]+(quad[3]-quad[0])*factor
+        variants.append(extended)
+    for points in variants:
+        natural_height = (np.linalg.norm(points[3]-points[0])+np.linalg.norm(points[2]-points[1]))/2
+        output_width = max(48, round(160*width/natural_height))
+        transform = cv2.getPerspectiveTransform(points, np.array(
+            [[0, 0], [output_width-1, 0], [output_width-1, 159], [0, 159]], dtype='float32'))
+        yield Image.fromarray(cv2.warpPerspective(rgb, transform, (output_width, 160), borderValue=(255, 255, 255)))
 
 
 def faces(image):
@@ -339,14 +398,13 @@ def faces(image):
             quad = np.array([points[sums.argmin()], points[diffs.argmin()], points[sums.argmax()], points[diffs.argmax()]], dtype='float32')
             if len(np.unique(quad, axis=0)) != 4:
                 continue
-            transform = cv2.getPerspectiveTransform(quad, np.array([[0, 0], [111, 0], [111, 159], [0, 159]], dtype='float32'))
-            face = Image.fromarray(cv2.warpPerspective(rgb, transform, (112, 160), borderValue=(255, 255, 255)))
-            pixels = np.asarray(face).astype(np.int16)
-            if ((pixels.min(axis=2) > 150) & (pixels.max(axis=2)-pixels.min(axis=2) < 65)).mean() < .5:
-                continue
-            rank, suit = card_parts(face)
-            if rank is not None and suit is not None:
-                found.append((box, face, rank, suit))
+            for face in face_variants(rgb, quad):
+                pixels = np.asarray(face).astype(np.int16)
+                if ((pixels.min(axis=2) > 150) & (pixels.max(axis=2)-pixels.min(axis=2) < 65)).mean() < .5:
+                    continue
+                rank, suit = card_parts(face)
+                if rank is not None and suit is not None:
+                    found.append((box, face, rank, suit))
     return found
 
 
@@ -363,5 +421,21 @@ def detect_cards(image, ocr):
         rank = 'T' if raw == '10' else raw
         rank = rank if len(rank) == 1 and rank in '23456789TJQKA' and confidence >= .8 else None
         suit, score = read_suit(suit_image)
-        cards.append(Card(box, rank, suit, min(confidence, score)))
-    return tuple(cards)
+        rank_mask = rank_image.convert('L').point(lambda x: 255 if x < 128 else 0)
+        visual = normalized(rank_mask)[0].tobytes()+normalized(suit_image)[0].tobytes()
+        cards.append(Card(box, rank, suit, min(confidence, score), visual))
+    grouped = []
+    for card in cards:
+        match = next((row for row in grouped if intersection(card.box, row[0].box) > .65), None)
+        if match is None:
+            grouped.append([card])
+        else:
+            match.append(card)
+    result = []
+    for group in grouped:
+        values = {card.value for card in group if card.value}
+        best = max(group, key=lambda c: (c.value is not None, (c.rank is not None)+(c.suit is not None), c.score))
+        if len(values) > 1:
+            best = Card(best.box, None, None, 0., best.visual)
+        result.append(best)
+    return tuple(result)

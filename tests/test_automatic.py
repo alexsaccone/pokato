@@ -1,15 +1,47 @@
 from dataclasses import replace
 import unittest
 from unittest.mock import Mock, patch
-from PIL import Image
-from pokato.vision.automatic import AutomaticReader, Card, arrange, amount, player_amounts, pot_amounts
+from PIL import Image, ImageDraw, ImageFont
+from pathlib import Path
+from pokato.vision.automatic import AutomaticReader, Card, arrange, amount, player_amounts, pot_amounts, detect_cards, card_parts, read_suit
 from pokato.vision.ocr import LocalOCR, Text
 from pokato.vision.screen import DesktopSource
 from pokato.vision.sources import Frame
-from auto_screens import screen
+from auto_screens import screen, fanned_hand, font
 
 
 class AutomaticTests(unittest.TestCase):
+    def test_spade_stays_recognizable_with_a_small_disconnected_stem(self):
+        path = next(p for p in ('C:/Windows/Fonts/seguisym.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf') if Path(p).exists())
+        symbol = Image.new('L', (120, 130))
+        ImageDraw.Draw(symbol).text((0, 0), '♠', font=ImageFont.truetype(path, 71), fill=255)
+        symbol = symbol.crop(symbol.getbbox()).resize((60, 70))
+        # Separate the last nine pixels of the stem from the main body.
+        ImageDraw.Draw(symbol).line((0, 60, 59, 60), fill=0, width=1)
+        face = Image.new('RGB', (112, 160), 'white')
+        ImageDraw.Draw(face).text((10, 0), '9', font=font(40), fill='black')
+        face.paste('black', (12, 55), symbol)
+        rank, suit = card_parts(face)
+        self.assertIsNotNone(rank)
+        self.assertEqual(read_suit(suit)[0], 's')
+
+    def test_all_52_fanned_cards_including_shaded_banners(self):
+        deck = [rank+suit for rank in '23456789TJQKA' for suit in 'cdhs']
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('Inference must stay offline')):
+            ocr = LocalOCR()
+            for index in range(0, len(deck), 2):
+                hand = tuple(deck[index:index+2])
+                for folded in (False, True):
+                    image = fanned_hand(hand, folded=folded)
+                    cards = sorted(detect_cards(image, ocr), key=lambda c: c.box[0])
+                    with self.subTest(hand=hand, folded=folded):
+                        self.assertEqual(tuple(c.value for c in cards), hand)
+
+    def test_complete_smaller_view_is_selected_over_a_partial_large_view(self):
+        large = (Card((100, 300, 180, 440), 'A', 'h', .96), Card((190, 300, 270, 440), '8', None, .5))
+        small = (Card((500, 10, 540, 70), 'A', 'h', .94), Card((545, 10, 585, 70), '8', 'h', .94))
+        self.assertEqual(arrange(large+small)[1], small)
+
     def test_unseen_clients_fonts_positions_and_four_color_cards_without_profiles(self):
         with patch('requests.sessions.Session.request', side_effect=AssertionError('Inference must stay offline')):
             reader = AutomaticReader()

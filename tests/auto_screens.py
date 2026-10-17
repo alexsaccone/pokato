@@ -9,12 +9,10 @@ def font(size, serif=False):
     return ImageFont.truetype(next(p for p in paths if Path(p).exists()), size)
 
 
-def screen(style='green'):
+def screen(style='green', *, board=('Ac', '7d', 'Ts', '2h', '9c'), hand=('Kc', 'Kh')):
     purple = style == 'purple'
     image = Image.new('RGB', (1400, 850) if purple else (1000, 650), '#302045' if purple else '#105e4d')
     draw = ImageDraw.Draw(image)
-    board = ('Ac', '7d', 'Ts', '2h', '9c')
-    hand = ('Kc', 'Kh')
     suit_path = next(p for p in ('C:/Windows/Fonts/seguisym.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf') if Path(p).exists())
     symbols = dict(zip('cdhs', '♣♦♥♠'))
     def card(value, x, y):
@@ -40,3 +38,23 @@ def screen(style='green'):
     draw.text((bx+340,by-100),'Beta',font=font(24),fill='white')
     draw.text((bx+340,by-68),'$120',font=font(24),fill='white')
     return image,board,hand
+
+
+def fanned_hand(hand=('Ah', '8h'), *, folded=False, scale=1.):
+    """Independent tilted/overlapping cards, with a banner below their suits."""
+    image = Image.new('RGB', (700, 650), '#24424e')
+    suit_path = next(p for p in ('C:/Windows/Fonts/seguisym.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf') if Path(p).exists())
+    for index, value in enumerate(hand):
+        card = Image.new('RGBA', (96, 140))
+        draw = ImageDraw.Draw(card)
+        draw.rounded_rectangle((1, 1, 94, 138), radius=6, fill='#c7c7c7' if folded else '#eeeeee', outline='#888888', width=3)
+        color = '#444444' if folded else '#af1d31' if value[1] in 'hd' else '#222222'
+        draw.text((8, -4), '10' if value[0] == 'T' else value[0], font=font(49, serif=True), fill=color)
+        draw.text((7, 44), dict(zip('cdhs', '♣♦♥♠'))[value[1]], font=ImageFont.truetype(suit_path, 71), fill=color)
+        card = card.rotate(5 if index == 0 else -5, expand=True, resample=Image.Resampling.BICUBIC)
+        image.paste(card, (250+index*83, 210), card)
+    if folded:
+        ImageDraw.Draw(image).text((263, 333), 'FOLDED', font=font(30), fill='#83d1f4', stroke_width=2, stroke_fill='#22424f')
+    if scale != 1.:
+        image = image.resize((round(image.width*scale), round(image.height*scale)), Image.Resampling.LANCZOS)
+    return image
