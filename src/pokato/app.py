@@ -484,7 +484,7 @@ class App:
         self.root.destroy()
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description="Pokato local practice table and screen-reading coach")
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--samples", type=int, default=400)
@@ -492,11 +492,17 @@ def main():
     parser.add_argument("--reader", action="store_true", help="Open the client-independent table reader")
     parser.add_argument("--image", type=Path, help="Local image to open in the table reader")
     parser.add_argument("--layout", type=Path, help="Saved table-reader layout")
-    args = parser.parse_args()
+    parser.add_argument("--practice", action="store_true", help="Open the local practice table")
+    args = parser.parse_args(argv)
     if not 50 <= args.samples <= 10000:
         parser.error("--samples must be between 50 and 10000")
     enable_dpi_awareness()
     root = tk.Tk()
+    if not (args.practice or args.reader or args.image or args.layout):
+        from pokato.ui.automatic_hud import AutomaticHUD
+        AutomaticHUD(root)
+        root.mainloop()
+        return
     app = App(root, args.seed, args.samples, args.database)
     if args.reader or args.image or args.layout:
         studio = app.open_table_reader()

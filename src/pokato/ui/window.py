@@ -39,6 +39,13 @@ class NativeWindow:
     def minimized(self):
         return bool(self.api.IsIconic(self.handle)) if self.api else self.window.state() == "iconic"
 
+    def exclude_from_capture(self):
+        if not self.api or not hasattr(self.api, 'SetWindowDisplayAffinity'):
+            return False
+        self.api.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+        self.api.SetWindowDisplayAffinity.restype = wintypes.BOOL
+        return bool(self.api.SetWindowDisplayAffinity(self.handle, 0x11))
+
     def dpi(self):
         if self.api and hasattr(self.api, "GetDpiForWindow"):
             self.api.GetDpiForWindow.argtypes = [wintypes.HWND]
