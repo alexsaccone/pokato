@@ -1,4 +1,4 @@
-# Automatic screen reader · 0.6.0
+# Automatic screen reader · 0.6.1
 
 Open **`dist\Pokato.exe`**, keep one poker table visible, and click **Start analysis**.
 Only the HUD opens. There is no window picker, region drawing, profile selection,
@@ -23,6 +23,38 @@ inference. The timestamp shows how old the latest reading is.
 - Confirm the hand's owner when repeated account/seat text or duplicate header
   cards supply an anchor. Otherwise display **VISIBLE HAND** and the uncertainty.
 - Re-detect on every frame, including after moving or resizing the poker window.
+
+## Hole-card extraction and tracking
+
+Version 0.6.1 selects the upper-left rank independently of the suit's size. It
+preserves glyph proportions when rectifying fanned cards, retries faces clipped
+by overlays, adapts foreground extraction to shaded cards, and excludes nearby
+banner letters from suit masks. A complete, legible header pair is preferred
+over a larger partial pair. Conflicting complete crop variants remain unknown.
+
+For live capture, each hole card needs two independent observations. Two
+matching copies at distinct screen locations can corroborate a pair in one
+frame. Otherwise matching frames build evidence for each slot independently,
+including alternating partial readings. Re-delivering one frame does not count
+as another observation. Single-image analysis remains an optical reading without
+cross-frame confirmation.
+
+Once corroborated, a card can survive a brief OCR rejection only when the
+uncertain rank/suit's visible shape still matches in a tracked view. Rank and
+suit are compared separately, so a matching rank cannot hide a changed suit.
+The HUD explicitly labels held readings and their age. At each update, an
+unreadable card can only be held if its last accepted read was within **12
+seconds**, even while the other card stays clear.
+
+Both slots and all accumulated evidence clear on observed board retreat or
+replacement, conflicting card components, changed uncertain glyphs, missing
+hole-card views, table loss, capture restart, Stop, or stale capture. If the
+board disappears while the old hand graphics linger, the old pair stays withheld
+until new-card evidence or a visible deal transition allows fresh confirmation.
+No old/new pair is assembled across those boundaries. The evidence reset is
+conservative: interrupted capture can require confirming the hand again.
+Deal detection depends on visible transitions; a transition entirely missed
+between captures cannot be recovered from unchanged pixels.
 
 The production reader does not load HD Poker profiles or any training screenshots.
 RapidOCR/PP-OCRv6 provides pretrained text detection and recognition; OpenCV handles
@@ -68,9 +100,11 @@ missing board slots, exposed-hand ambiguity, multiple boards, chat text falsely
 resembling pots, amount parsing and desktop-capture lifecycle.
 
 Ten previously labeled HD Poker captures were evaluated with no profile loaded:
-all **19 board cards** were correct. Seven of ten complete hand pairs were read
-correctly and anchored to the hero; the remaining three faded/folded hand pairs
-were withheld. No incorrect accepted cards occurred in this small corpus. This
+all **19 board cards and 20 hole cards** were read correctly after the extraction
+fix, including the three shaded/folded pairs previously withheld. Seven pairs
+also had an initial hero anchor; the other three remain visible hands until
+ownership is established by session continuity. No incorrect accepted cards
+occurred in this small corpus. This
 does not establish accuracy across all clients, themes or game states. The local
 captures and labels stay outside Git.
 
@@ -83,9 +117,29 @@ evaluated. The report separates correct, withheld and incorrect accepted cards;
 it exits unsuccessfully if any annotated card is incorrectly accepted. This
 checks cards, not player identities, amount accuracy or strategic validity.
 
+`scripts/benchmark_hole_stability.py --manifest <labels.json>` replays the same
+test images at original size, 70%, 71%, and with desktop padding. It evaluates
+raw cards and tracked cards separately, then injects alternating OCR-confidence
+rejections while preserving the observed glyphs. This distinguishes optical
+extraction from controlled tracking failures. Unit tests cover all 52 cards in
+independent fanned/shaded fixtures, disconnected stems, preferred duplicate
+views, alternating failures, glyph changes, individual expiry, source changes,
+board resets, lingering old graphics, resize, and identical cards after a
+visible between-deal frame.
+
+On those 40 correlated HD Poker image variants, all **80 hole-card and 76
+board-card observations** were correct. Tracking, including the controlled
+rejections, produced 157 correct and three initially withheld card observations,
+with no incorrect accepted cards. All 39 already-corroborated pairs survived the
+injected rejection; the remaining pair was still collecting initial evidence.
+These figures are finite replay results, not a live-play accuracy guarantee.
+The full suite has **123 tests**, including 18 tracking sequence cases.
+
 The desktop smoke test clicks the actual Start button, reads captured pixels
 from an independent fixture, stops/restarts while OCR is running, rejects stale
-results and verifies immediate clearing. All network requests are blocked during
+results and verifies immediate clearing. It also checks controlled alternating
+OCR rejection, an actual blank between-deal screen, and actual next-deal pixels
+with a different pair. All network requests are blocked during
 that test. The fixture PNG is packaged only for diagnostics; it is not a model or
 a production lookup table.
 

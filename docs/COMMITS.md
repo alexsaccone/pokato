@@ -234,3 +234,34 @@ corpora do not establish universal skin support. External action reconstruction
 and recommendation integration remain outstanding in the automatic pipeline.
 
 Binary files and private captures/reports remain ignored. Commits are local.
+
+## Hole-card reliability: version 0.6.1
+
+Three dependency-ordered local commits:
+
+1. `77f71d8 fix(vision): extract fanned and shaded hole cards correctly`
+   — preserve card geometry, separate upper-left ranks from larger suits, recover
+   clipped faces, adapt to shaded backgrounds, isolate banner fragments, prefer
+   complete views, and expose normalized glyph evidence. Independent fixtures
+   cover every card in both clear and shaded fanned hands.
+2. `a8f5ff2 fix(hud): track corroborated hole cards within visible deals`
+   — per-slot corroboration, independent duplicate-view evidence, explicit held
+   provenance, bounded age, glyph/position continuity, and whole-pair clearing on
+   deal evidence. Includes 18 sequence tests and a desktop diagnostic that checks
+   alternating controlled rejections and actual between-deal/new-deal pixels.
+3. `test: validate and package hole-card tracking fixes`
+   — reusable resized/padded replay benchmark, held-state readability checks,
+   updated behavior/limits, version 0.6.1 and the rebuilt single `dist\Pokato.exe`.
+
+Validation commands are `scripts/validate.py`, `scripts/automatic_smoke.py`,
+`scripts/automatic_readability_smoke.py`, and the executable's `--self-test-auto`
+mode. `scripts/benchmark_hole_stability.py --manifest <local-labels.json>` checks
+raw card pixels at four sizes/layouts and controlled tracking failures. Raw
+screens, labels, QA reports and binaries remain outside Git.
+
+Final checks: 123 unit tests; five display/DPI cases with held provenance; frozen
+offline Start/Stop/restart and actual between-deal/new-deal capture. Forty HD
+capture variants produced 80/80 correct hole cards and 76/76 correct board cards.
+Controlled tracking rejections produced no incorrect retained cards; initial
+confirmation withheld three card observations. These are correlated replay
+fixtures and do not establish general live-play accuracy.

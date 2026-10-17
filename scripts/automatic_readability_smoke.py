@@ -40,7 +40,8 @@ def main():
                                 for value in ('Ac', '7d', 'Ts', '2h', '9c')),
                     hand=(Card((0, 0, 1, 1), 'K', 'c', 1.), Card((0, 0, 1, 1), 'K', 'h', 1.)),
                     pots=(Amount('125.50', '125.50', False, 'pot'),),
-                    hero_verified=True, table_found=True)
+                    hero_verified=True, table_found=True,
+                    hand_status='Hole cards held · last read 5s ago', hand_held=True)
                 hud.deliver(reading)
                 root.update()
                 assert root.winfo_width() <= display.width and root.winfo_height() <= display.height

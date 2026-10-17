@@ -5,6 +5,12 @@ Open Pokato and click **Start analysis**. See the [automatic reader](AUTOMATIC_R
 for current behavior and measured results. This document records the optional
 manual calibration workflow from 0.5.2.
 
+Version 0.6.1 fixes fanned/shaded hole-card extraction and adds live per-card
+corroboration and deal-boundary clearing. The same ten labeled captures now have
+20/20 correct hole cards and 19/19 correct board cards without this profile.
+Current tracking behavior and its separate sequence tests are documented in the
+[automatic reader guide](AUTOMATIC_READER.md#hole-card-extraction-and-tracking).
+
 Real HD Poker 1.9.5 frames were captured locally on 2026-10-16: Windows,
 one nine-seat garden table, 250/500 play-money blinds, 3812 × 2138 client pixels.
 The reader remains client-independent; all HD Poker positions and examples live

@@ -7,11 +7,16 @@ Pokato finds cards, the board, displayed pots and player stacks without selectin
 a window, drawing regions, teaching examples or loading a client profile.
 **Stop analysis** ends capture and immediately clears the readings.
 
-Version 0.6.0 opens only the HUD. OCR models are included in the executable and
+Version 0.6.1 opens only the HUD. OCR models are included in the executable and
 run locally; no API key, model download or GPU is required. Screens are analyzed
 in memory, not saved as a recording. Use **A− / A+** for text size and the **⋯**
 menu for screenshots, the practice table or optional advanced calibration tools.
 See [automatic reader behavior and validation](docs/AUTOMATIC_READER.md).
+
+Hole-card extraction handles fanned and shaded HD Poker cards. Live readings
+combine corroborated observations so a brief OCR rejection does not erase a
+confirmed card. Held cards are labeled; new-deal transitions and Stop clear
+their accumulated evidence.
 
 Detection adapts to card positions and fonts; it does not guarantee recognition
 of every skin. Tiny, faded, overlapping or unusual cards may remain unreadable.
