@@ -9,6 +9,7 @@ from .window import WindowChrome, NativeWindow, BG, TEXT, MUTED, ACCENT
 from .reader_style import ReaderTheme, ScrollPanel
 from pokato.core.cards import display_card
 from pokato.vision.automatic import AutomaticReader
+from pokato.vision.hole_tracking import HoleCardTracker
 from pokato.vision.screen import DesktopSource
 from pokato.vision.sources import ImageSource
 
@@ -24,6 +25,7 @@ class AutomaticHUD:
         self.fonts = HudFonts(root, self.scale)
         self.closed = self.running = False
         self.source = self.future = self.reading = None
+        self.hole_tracker = HoleCardTracker()
         self.generation = self.future_generation = 0
         self.next_capture = 0.
         self.last_read = None
@@ -154,6 +156,7 @@ class AutomaticHUD:
         self.start_button.configure(text='Start analysis', bg=ACCENT)
 
     def clear(self, status):
+        self.hole_tracker.reset()
         self.reading = None
         self.last_read = None
         self.last_signature = None
@@ -228,6 +231,8 @@ class AutomaticHUD:
         self.job = self.root.after(80, self.poll)
 
     def deliver(self, reading):
+        if self.source and self.source.live:
+            reading = self.hole_tracker.update(reading)
         self.last_read = time.monotonic()
         self.reading = reading
         if not reading.table_found:
@@ -248,6 +253,8 @@ class AutomaticHUD:
                                           for p in reading.pots) or 'Pot not visible')
             self.players.configure(text=f'{len(reading.players)} player stacks detected' if reading.players else 'Player stacks not visible')
             notes = list(reading.issues)
+            if reading.hand_status:
+                notes.append(reading.hand_status)
             if reading.hand and not reading.hero_verified:
                 notes.append('Hand owner is uncertain')
             if any(c.value is None for c in (*reading.board, *reading.hand)):

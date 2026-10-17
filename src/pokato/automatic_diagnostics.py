@@ -12,6 +12,7 @@ from pokato.ui.automatic_hud import AutomaticHUD
 from pokato.ui.window import NativeWindow
 from pokato.vision.capture import enable_dpi_awareness
 from pokato.vision.sources import CaptureSource
+from pokato.vision.automatic import AutomaticReader
 
 
 def automatic_smoke(report_path):
@@ -23,9 +24,11 @@ def automatic_smoke(report_path):
     fixture = tk.Toplevel(root)
     fixture.overrideredirect(True)
     fixture.attributes('-topmost', True)
-    image = Image.open(Path(__file__).parent/'assets'/'automatic-smoke.png').convert('RGB')
+    assets = Path(__file__).parent/'assets'
+    image = Image.open(assets/'automatic-smoke.png').convert('RGB')
     fixture.photo = ImageTk.PhotoImage(image)
-    tk.Label(fixture, image=fixture.photo, borderwidth=0, highlightthickness=0).pack()
+    fixture_label = tk.Label(fixture, image=fixture.photo, borderwidth=0, highlightthickness=0)
+    fixture_label.pack()
     fixture.geometry('1000x650+20+20')
     sources = []
     class SessionSource(CaptureSource):
@@ -43,9 +46,31 @@ def automatic_smoke(report_path):
         source.session = len(sources)+1
         sources.append(source)
         return source
-    hud = AutomaticHUD(root, source_factory=source_factory, settings_path=False)
+    class SmokeReader(AutomaticReader):
+        partial = False
+        count = 0
+
+        def read(self, frame):
+            reading = super().read(frame)
+            if self.partial and len(reading.hand) == 2:
+                # Emulate confidence rejection without changing the observed
+                # glyphs; extraction itself is exercised by the offline corpus.
+                hand = list(reading.hand)
+                index = self.count % 2
+                hand[index] = replace(hand[index], rank=None, suit=None, score=.4)
+                self.count += 1
+                reading = replace(reading, hand=tuple(hand), hand_views=(tuple(hand),))
+            return reading
+
+    reader = SmokeReader()
+    hud = AutomaticHUD(root, reader=reader, source_factory=source_factory, settings_path=False)
     phase = 0
+    partial_frames = set()
     started = time.monotonic()
+    def show_fixture(name):
+        fixture.photo = ImageTk.PhotoImage(Image.open(assets/name).convert('RGB'))
+        fixture_label.configure(image=fixture.photo)
+        root.update_idletasks()
     def finish(error=None):
         report['ok'] = error is None
         if error:
@@ -57,7 +82,7 @@ def automatic_smoke(report_path):
     def poll():
         nonlocal phase
         try:
-            assert time.monotonic()-started < 50, 'Automatic HUD smoke timed out'
+            assert time.monotonic()-started < 90, 'Automatic HUD smoke timed out'
             if phase == 0:
                 assert not hud.running and not sources
                 assert hud.reader.ocr is None
@@ -74,7 +99,7 @@ def automatic_smoke(report_path):
                 assert hud.running and len(sources) == 2
                 report['checks'].append('Stop and restart during in-flight OCR creates a new capture session')
                 phase = 2
-            elif phase == 2 and hud.reading is not None and hud.reading.table_found:
+            elif phase == 2 and hud.reading is not None and hud.reading.hand_status == 'Hole cards confirmed':
                 reading = hud.reading
                 assert reading.source == 'QA session 2', 'Stale OCR result delivered after restart'
                 assert tuple(c.value for c in reading.board) == ('Ac','7d','Ts','2h','9c'), reading
@@ -85,18 +110,40 @@ def automatic_smoke(report_path):
                 report['hud_excluded_from_capture'] = hud.excluded
                 root.update_idletasks()
                 ImageGrab.grab(window=NativeWindow(root).handle).save(report_path.with_suffix('.png'))
+                reader.partial = True
+                phase = 3
+            elif phase == 3 and hud.reading is not None and hud.reading.hand_held:
+                assert tuple(c.value for c in hud.reading.hand) == ('Kc', 'Kh'), hud.reading
+                partial_frames.add(hud.reading.timestamp)
+                if len(partial_frames) >= 2:
+                    report['checks'].append('Alternating controlled OCR rejections keep both corroborated hole cards visible with held provenance')
+                    root.update_idletasks()
+                    ImageGrab.grab(window=NativeWindow(root).handle).save(report_path.with_name(report_path.stem+'-held.png'))
+                    reader.partial = False
+                    show_fixture('automatic-between-hands.png')
+                    phase = 4
+            elif phase == 4 and hud.reading is not None and not hud.reading.hand and not hud.reading.board:
+                assert hud.hole_tracker.votes == [0, 0]
+                report['checks'].append('Actual between-deal screen clears both old hole cards and their evidence')
+                show_fixture('automatic-next-hand.png')
+                phase = 5
+            elif phase == 5 and hud.reading is not None and hud.reading.hand_status == 'Hole cards confirmed':
+                assert tuple(c.value for c in hud.reading.hand) == ('Qd', 'Js'), hud.reading
+                assert not hud.reading.board
+                report['checks'].append('Actual next-deal pixels confirm the new pair without carrying either old card')
                 hud.start_button.invoke()
                 assert not hud.running and hud.reading is None and sources[1].closed
+                assert hud.hole_tracker.votes == [0, 0]
                 assert hud.pot.cget('text') == '' and hud.start_button.cget('text') == 'Start analysis'
                 report['checks'].append('Stop immediately clears readings and closes capture')
-                phase = 3
-            elif phase == 3 and hud.future is None:
+                phase = 6
+            elif phase == 6 and hud.future is None:
                 hud.start_button.invoke()
                 assert len(sources) == 3
-                phase = 4
-            elif phase == 4 and hud.reading is not None and hud.reading.table_found:
+                phase = 7
+            elif phase == 7 and hud.reading is not None and hud.reading.hand_status == 'Hole cards confirmed':
                 assert hud.reading.source == 'QA session 3'
-                assert tuple(c.value for c in hud.reading.board) == ('Ac','7d','Ts','2h','9c')
+                assert tuple(c.value for c in hud.reading.hand) == ('Qd', 'Js')
                 report['checks'].append('Restart creates a fresh capture session; stale jobs are discarded')
                 finish()
                 return
